@@ -21,6 +21,7 @@ from pathlib import Path
 from agents import ResearchAgent, build_agents, get_agents_by_phase, CAPABILITY_REGISTRY
 from consensus import evaluate_critic, evaluate_judge, format_gate_report
 from memory import ResearchMemory
+from metrics import MetricsCollector, load_all_metrics, format_metrics_report
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -840,6 +841,27 @@ async def run_swarm(
           f"{stats.get('techniques', 0)} techniques ({invalidated} invalidated), "
           f"{stats.get('research_runs', 0)} prior runs")
 
+    # Initialize metrics collector
+    git_commit = ""
+    try:
+        git_result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).parent),
+        )
+        if git_result.returncode == 0:
+            git_commit = git_result.stdout.strip()
+    except Exception:
+        pass
+
+    mc = MetricsCollector()
+    mc.start_run(
+        run_id=datetime.now().strftime("%Y%m%d_%H%M%S"),
+        topic=topic,
+        git_commit=git_commit,
+    )
+    mc.record_memory_state(stats)
+
     total_agents = len(agents)
     all_outputs = {}
     invocation_count = 0
@@ -859,9 +881,11 @@ async def run_swarm(
         )
         scout_context = memory_context if memory_context else ""
 
+        mc.start_phase("scout")
         start = time.monotonic()
         scout_outputs = await blast_agents(scouts, scout_context, scout_task)
         elapsed = time.monotonic() - start
+        mc.end_phase("scout", scout_outputs, len(scout_context))
         print(f"  Scouts done [{elapsed:.1f}s]")
 
         all_outputs["scout"] = scout_outputs
@@ -895,9 +919,11 @@ async def run_swarm(
         if memory_context:
             research_context = f"{memory_context}\n\n{scout_ctx}"
 
+        mc.start_phase("research")
         start = time.monotonic()
         research_outputs = await blast_agents(researchers, research_context, research_task)
         elapsed = time.monotonic() - start
+        mc.end_phase("research", research_outputs, len(research_context))
         print(f"  Researchers done [{elapsed:.1f}s]")
 
         all_outputs["research"] = research_outputs
@@ -927,9 +953,11 @@ async def run_swarm(
             f"- priority (\"high\", \"medium\", or \"low\")"
         )
 
+        mc.start_phase("applied")
         start = time.monotonic()
         applied_outputs = await blast_agents(applied, research_ctx, applied_task)
         elapsed = time.monotonic() - start
+        mc.end_phase("applied", applied_outputs, len(research_ctx))
         print(f"  Applied done [{elapsed:.1f}s]")
 
         all_outputs["applied"] = applied_outputs
@@ -1016,12 +1044,13 @@ async def run_swarm(
 
             all_outputs.setdefault("quality", []).append(judge_output)
 
-            gate_report = format_gate_report(
-                critic_eval if critic_agent else {"verdict": "skipped", "confidence": 0,
-                                                   "total_issues": 0, "high_severity": 0,
-                                                   "medium_severity": 0, "issues": []},
-                judge_eval,
-            )
+            critic_result = critic_eval if critic_agent else {
+                "verdict": "skipped", "confidence": 0,
+                "total_issues": 0, "high_severity": 0,
+                "medium_severity": 0, "issues": [],
+            }
+            gate_report = format_gate_report(critic_result, judge_eval)
+            mc.record_quality_gate(judge_eval, critic_result)
             print(f"\n{gate_report}\n")
 
         # Check keep/discard
@@ -1031,8 +1060,11 @@ async def run_swarm(
                        judge_eval["actionability"], "discard", "-",
                        judge_eval.get("notes", "")[:100])
             mem.log_run(topic, judge_eval["actionability"], "discard")
+            mc.finalize()
+            mc.save()
             mem.close()
             print(f"\nLogged to research-log.tsv. No brief produced.")
+            _print_metrics_summary()
             return None
 
     elif skip_gate:
@@ -1121,6 +1153,18 @@ async def run_swarm(
             if key_finding:
                 mem.store_insight(key_finding, run_id)
 
+            # Record technique overlap metrics
+            raw_tech_count = sum(
+                len(o.get("techniques", []))
+                for o in all_outputs.get("research", [])
+                if not o.get("_error") and isinstance(o.get("techniques"), list)
+            )
+            deduped_tech_count = len(synth_output.get("techniques_found", []))
+            mc.record_technique_counts(raw_tech_count, deduped_tech_count)
+
+            # Finalize and save metrics
+            mc.finalize()
+            mc.save()
             mem.close()
 
             print(f"\n{'=' * 60}")
@@ -1130,10 +1174,22 @@ async def run_swarm(
             print(f"Status: KEEP")
             print(f"{'=' * 60}\n")
 
+            _print_metrics_summary()
             return filepath
 
+    mc.finalize()
+    mc.save()
     mem.close()
     return None
+
+
+def _print_metrics_summary():
+    """Print a compact metrics summary after a run."""
+    records = load_all_metrics()
+    if not records:
+        return
+    report = format_metrics_report(records)
+    print(f"\n{report}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1147,7 +1203,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Research Swarm: 14-agent AI research pipeline",
     )
-    parser.add_argument("topic", help="The research topic")
+    parser.add_argument("topic", nargs="?", default="",
+                        help="The research topic")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show agent plan without executing")
     parser.add_argument("--codebase", default="",
@@ -1158,8 +1215,22 @@ def main():
                         help="Skip quality gate (keep all findings)")
     parser.add_argument("--verbose", action="store_true",
                         help="Detailed logging")
+    parser.add_argument("--metrics", action="store_true",
+                        help="Show metrics report from all runs and exit")
 
     args = parser.parse_args()
+
+    # Show metrics report and exit
+    if args.metrics:
+        records = load_all_metrics()
+        if not records:
+            print("No metrics recorded yet. Run a swarm first.")
+        else:
+            print(format_metrics_report(records, last_n=10))
+        return
+
+    if not args.topic:
+        parser.error("topic is required (unless using --metrics)")
 
     # Load config
     config = load_config()
