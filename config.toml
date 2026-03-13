@@ -7,9 +7,9 @@ default_model = "sonnet"
 [timeouts]
 scout = 120
 researcher = 180
-applied = 150
+applied = 200
 quality = 120
-synthesizer = 180
+synthesizer = 240
 
 [models]
 scout = "haiku"

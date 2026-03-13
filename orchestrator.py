@@ -118,8 +118,18 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
                       + (f" (retry {attempt})" if attempt > 0 else ""))
             return output
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - start
+            # Try to recover partial output from the timed-out process
+            partial_stdout = ""
+            if e.stdout:
+                partial_stdout = e.stdout if isinstance(e.stdout, str) else e.stdout.decode("utf-8", errors="replace")
+            if partial_stdout.strip():
+                output = _parse_output(agent, partial_stdout)
+                if not output.get("_raw") and not output.get("_error"):
+                    output["_partial"] = True
+                    print(f"  {label} TIMEOUT [{elapsed:.1f}s] (recovered partial output)")
+                    return output
             print(f"  {label} TIMEOUT [{elapsed:.1f}s]")
             return _error_output(agent, f"Timed out after {agent.timeout}s")
         except Exception as e:

@@ -247,6 +247,13 @@ TWO_PASS_INSTRUCTION = """
 
 OUTPUT FORMAT: First, think through your analysis step by step. Then, output your final answer as a single valid JSON object. Your response should end with the JSON — everything before it is your reasoning (which will be ignored). Only the JSON is parsed."""
 
+# Partial output policy: mandate structured output even on failure/timeout.
+# Research finding: timeouts that return partial JSON are recoverable;
+# timeouts that return nothing are pipeline-killing events.
+FAILURE_POLICY = """
+
+PARTIAL OUTPUT POLICY: If you cannot fully complete your analysis, you MUST still output valid JSON with whatever you have so far. Include "status": "partial" in your response. Partial results are always more valuable than no output. Never return empty output."""
+
 
 # ---------------------------------------------------------------------------
 # Agent dataclass
@@ -533,7 +540,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=scout_id,
             role="scout",
             phase="scout",
-            system_prompt=ROLE_PROMPTS[scout_id] + JSON_OUTPUT_INSTRUCTION,
+            system_prompt=ROLE_PROMPTS[scout_id] + JSON_OUTPUT_INSTRUCTION + FAILURE_POLICY,
             model=models.get("scout", "haiku"),
             output_schema=SCOUT_OUTPUT_SCHEMA,
             timeout=timeouts.get("scout", 120),
@@ -546,7 +553,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=r_id,
             role="researcher",
             phase="research",
-            system_prompt=ROLE_PROMPTS[r_id] + JSON_OUTPUT_INSTRUCTION,
+            system_prompt=ROLE_PROMPTS[r_id] + JSON_OUTPUT_INSTRUCTION + FAILURE_POLICY,
             model=models.get("researcher", "sonnet"),
             output_schema=RESEARCHER_OUTPUT_SCHEMA,
             timeout=timeouts.get("researcher", 180),
@@ -558,7 +565,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=a_id,
             role="applied",
             phase="applied",
-            system_prompt=ROLE_PROMPTS[a_id] + JSON_OUTPUT_INSTRUCTION,
+            system_prompt=ROLE_PROMPTS[a_id] + JSON_OUTPUT_INSTRUCTION + FAILURE_POLICY,
             model=models.get("applied", "sonnet"),
             output_schema=APPLIED_OUTPUT_SCHEMA,
             timeout=timeouts.get("applied", 150),
@@ -569,7 +576,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="critic",
         role="quality",
         phase="quality",
-        system_prompt=ROLE_PROMPTS["critic"] + JSON_OUTPUT_INSTRUCTION,
+        system_prompt=ROLE_PROMPTS["critic"] + JSON_OUTPUT_INSTRUCTION + FAILURE_POLICY,
         model=models.get("critic", "sonnet"),
         output_schema=CRITIC_OUTPUT_SCHEMA,
         timeout=timeouts.get("quality", 120),
@@ -578,7 +585,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="judge",
         role="quality",
         phase="quality",
-        system_prompt=ROLE_PROMPTS["judge"] + TWO_PASS_INSTRUCTION,
+        system_prompt=ROLE_PROMPTS["judge"] + TWO_PASS_INSTRUCTION + FAILURE_POLICY,
         model=models.get("judge", "opus"),
         output_schema=JUDGE_OUTPUT_SCHEMA,
         timeout=timeouts.get("quality", 120),
@@ -589,7 +596,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="synthesizer",
         role="output",
         phase="synthesis",
-        system_prompt=ROLE_PROMPTS["synthesizer"] + TWO_PASS_INSTRUCTION,
+        system_prompt=ROLE_PROMPTS["synthesizer"] + TWO_PASS_INSTRUCTION + FAILURE_POLICY,
         model=models.get("synthesizer", "opus"),
         output_schema=SYNTHESIZER_OUTPUT_SCHEMA,
         timeout=timeouts.get("synthesizer", 180),
