@@ -22,6 +22,9 @@ synthesizer = "opus"
 [memory]
 db_path = "memory.db"
 max_context_chars = 3000
+decay_lambda = 0.01              # exponential decay: score *= exp(-lambda * hours)
+promotion_threshold = 5          # compress insights into meta-insight after this many related
+max_technique_age_days = 90      # deprioritize untouched techniques older than this
 
 [output]
 dir = "./output"

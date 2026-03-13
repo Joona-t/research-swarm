@@ -514,13 +514,21 @@ async def run_swarm(
 
     # Load research program and memory
     program = load_program()
+    config = load_config()
+    mem_config = config.get("memory", {})
     mem = ResearchMemory()
+    mem.decay_lambda = mem_config.get("decay_lambda", 0.01)
+    mem.promotion_threshold = mem_config.get("promotion_threshold", 5)
+    max_age_days = mem_config.get("max_technique_age_days", 90)
+    mem.max_technique_age = max_age_days * 86400
     mem.initialize()
     memory_context = mem.build_memory_context(topic)
 
     stats = mem.stats
-    print(f"Memory: {stats.get('insights', 0)} insights, "
-          f"{stats.get('techniques', 0)} techniques, "
+    meta = stats.get('meta_insights', 0)
+    invalidated = stats.get('invalidated_techniques', 0)
+    print(f"Memory: {stats.get('insights', 0)} insights ({meta} meta), "
+          f"{stats.get('techniques', 0)} techniques ({invalidated} invalidated), "
           f"{stats.get('research_runs', 0)} prior runs")
 
     total_agents = len(agents)
@@ -768,10 +776,34 @@ async def run_swarm(
                 "keep", key_finding,
             )
 
-            # Store techniques
+            # Store techniques with full metadata when available
             for t in synth_output.get("techniques_found", []):
                 if isinstance(t, str):
-                    mem.store_technique(t, source=topic)
+                    # Parse "Name — description" format if present
+                    if " — " in t:
+                        parts = t.split(" — ", 1)
+                        mem.store_technique(
+                            parts[0].strip(),
+                            description=parts[1].strip(),
+                            source=topic,
+                        )
+                    elif " - " in t:
+                        parts = t.split(" - ", 1)
+                        mem.store_technique(
+                            parts[0].strip(),
+                            description=parts[1].strip(),
+                            source=topic,
+                        )
+                    else:
+                        mem.store_technique(t, source=topic)
+                elif isinstance(t, dict):
+                    mem.store_technique(
+                        t.get("name", str(t)),
+                        description=t.get("description", ""),
+                        source=topic,
+                        domain=t.get("domain", ""),
+                        applicable_to=t.get("applicability", ""),
+                    )
 
             # Store insight
             if key_finding:
