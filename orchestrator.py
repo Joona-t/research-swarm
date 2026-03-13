@@ -1027,6 +1027,7 @@ async def run_swarm(
                 f"Respond with a JSON object containing exactly these keys:\n"
                 f"- coverage_score (number 0-10)\n"
                 f"- accuracy_score (number 0-10)\n"
+                f"- factuality_score (number 0-10 — are claims cited?)\n"
                 f"- actionability_score (number 0-10)\n"
                 f"- quality_vote (\"keep\" or \"discard\")\n"
                 f"- notes (string explaining your decision)\n\n"
@@ -1048,7 +1049,18 @@ async def run_swarm(
                     if not k.startswith("_"):
                         print(f"    {k}: {str(v)[:120]}")
 
-            judge_eval = evaluate_judge(judge_output, min_act)
+            # Compute mean researcher confidence for weighted consensus gate
+            research_outputs = all_outputs.get("research", [])
+            confidences = [
+                o.get("confidence", 0.7)
+                for o in research_outputs
+                if not o.get("_error") and isinstance(o.get("confidence"), (int, float))
+            ]
+            mean_confidence = (
+                sum(confidences) / len(confidences) if confidences else 0.7
+            )
+
+            judge_eval = evaluate_judge(judge_output, min_act, mean_confidence)
             print(f"  Judge: actionability={judge_eval['actionability']}/10, "
                   f"vote={judge_eval['vote']} [{elapsed:.1f}s]")
 
@@ -1130,26 +1142,41 @@ async def run_swarm(
                 "keep", key_finding,
             )
 
+            # Build provenance lookup from researcher technique outputs
+            provenance = {}  # technique_name_prefix -> {source_url, evidence_type}
+            for o in all_outputs.get("research", []):
+                if o.get("_error"):
+                    continue
+                for t in o.get("techniques", []):
+                    if isinstance(t, dict) and t.get("name"):
+                        prefix = " ".join(t["name"].lower().split()[:3])
+                        provenance[prefix] = {
+                            "source_url": t.get("source_url", ""),
+                            "evidence_type": t.get("evidence_type", "unverified"),
+                        }
+
             # Store techniques with full metadata when available
             for t in synth_output.get("techniques_found", []):
                 if isinstance(t, str):
                     # Parse "Name — description" format if present
+                    name = t
+                    desc = ""
                     if " — " in t:
                         parts = t.split(" — ", 1)
-                        mem.store_technique(
-                            parts[0].strip(),
-                            description=parts[1].strip(),
-                            source=topic,
-                        )
+                        name, desc = parts[0].strip(), parts[1].strip()
                     elif " - " in t:
                         parts = t.split(" - ", 1)
-                        mem.store_technique(
-                            parts[0].strip(),
-                            description=parts[1].strip(),
-                            source=topic,
-                        )
-                    else:
-                        mem.store_technique(t, source=topic)
+                        name, desc = parts[0].strip(), parts[1].strip()
+
+                    # Look up provenance by name prefix
+                    prefix = " ".join(name.lower().split()[:3])
+                    prov = provenance.get(prefix, {})
+
+                    mem.store_technique(
+                        name, description=desc, source=topic,
+                        source_url=prov.get("source_url", ""),
+                        evidence_type=prov.get("evidence_type", "unverified"),
+                    )
                 elif isinstance(t, dict):
                     mem.store_technique(
                         t.get("name", str(t)),
@@ -1157,6 +1184,8 @@ async def run_swarm(
                         source=topic,
                         domain=t.get("domain", ""),
                         applicable_to=t.get("applicability", ""),
+                        source_url=t.get("source_url", ""),
+                        evidence_type=t.get("evidence_type", "unverified"),
                     )
 
             # Store insight

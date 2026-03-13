@@ -46,32 +46,54 @@ def evaluate_critic(critic_output: dict) -> dict:
     }
 
 
-def evaluate_judge(judge_output: dict, min_actionability: int = 6) -> dict:
-    """Parse judge scores and make the keep/discard decision."""
+def evaluate_judge(judge_output: dict, min_actionability: int = 6,
+                   researcher_confidence: float = 0.7) -> dict:
+    """Parse judge scores and make the keep/discard decision.
+
+    Confidence-weighted consensus: if mean researcher confidence is low,
+    require higher actionability to keep. This prevents low-confidence
+    speculative findings from passing the gate.
+    """
     coverage = _safe_num(_find_key(judge_output, "coverage_score", "coverage", default=0))
     accuracy = _safe_num(_find_key(judge_output, "accuracy_score", "accuracy", default=0))
     actionability = _safe_num(_find_key(judge_output, "actionability_score",
                                          "actionability", default=0))
+    factuality = _safe_num(_find_key(judge_output, "factuality_score",
+                                      "factuality", default=0))
     vote = _find_key(judge_output, "quality_vote", "vote", "decision", default="discard")
     if isinstance(vote, str):
         vote = vote.lower().strip()
     notes = str(_find_key(judge_output, "notes", "explanation", "reasoning",
                            "rationale", default=""))
 
+    # Dynamic threshold: low-confidence research needs higher actionability
+    effective_threshold = min_actionability
+    if researcher_confidence < 0.6:
+        effective_threshold = min_actionability + 1
+
     # Override vote if actionability is below threshold
-    if actionability < min_actionability:
+    if actionability < effective_threshold:
         vote = "discard"
-    elif actionability >= min_actionability and vote == "discard":
+    elif actionability >= effective_threshold and vote == "discard":
         # Judge voted discard but score says keep — trust the score
         vote = "keep"
+
+    # Include factuality in average (4 dimensions now)
+    dimensions = [coverage, accuracy, actionability]
+    if factuality > 0:
+        dimensions.append(factuality)
+    avg = round(sum(dimensions) / len(dimensions), 1)
 
     return {
         "coverage": coverage,
         "accuracy": accuracy,
+        "factuality": factuality,
         "actionability": actionability,
         "vote": vote,
         "notes": notes,
-        "avg_score": round((coverage + accuracy + actionability) / 3, 1),
+        "avg_score": avg,
+        "researcher_confidence": round(researcher_confidence, 2),
+        "effective_threshold": effective_threshold,
     }
 
 
@@ -94,13 +116,26 @@ def format_gate_report(critic_eval: dict, judge_eval: dict) -> str:
             problem = issue.get("problem", "")[:80]
             lines.append(f"  [{severity}] {claim}: {problem}")
 
+    # Factuality line only if scored
+    factuality_line = ""
+    if judge_eval.get("factuality", 0) > 0:
+        factuality_line = f"\n  Factuality:    {judge_eval['factuality']}/10"
+
+    # Confidence weighting note
+    conf_note = ""
+    if judge_eval.get("effective_threshold", 6) > 6:
+        conf_note = (
+            f"\n  (Low researcher confidence {judge_eval.get('researcher_confidence', 0):.0%} "
+            f"→ threshold raised to {judge_eval['effective_threshold']})"
+        )
+
     lines.extend([
         "",
         f"**Judge scores:**",
         f"  Coverage:      {judge_eval['coverage']}/10",
         f"  Accuracy:      {judge_eval['accuracy']}/10",
-        f"  Actionability: {judge_eval['actionability']}/10",
-        f"  Average:       {judge_eval['avg_score']}/10",
+        f"  Actionability: {judge_eval['actionability']}/10{factuality_line}",
+        f"  Average:       {judge_eval['avg_score']}/10{conf_note}",
         "",
         f"**Decision: {judge_eval['vote'].upper()}**",
         f"  {judge_eval['notes']}",

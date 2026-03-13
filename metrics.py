@@ -66,9 +66,11 @@ class RunMetrics:
     # Quality gate
     coverage: float = 0.0
     accuracy: float = 0.0
+    factuality: float = 0.0
     actionability: float = 0.0
     avg_quality: float = 0.0
     vote: str = ""
+    researcher_confidence: float = 0.0
     critic_issues_total: int = 0
     critic_issues_high: int = 0
 
@@ -166,9 +168,11 @@ class MetricsCollector:
     def record_quality_gate(self, judge_eval: dict, critic_eval: dict):
         self.run.coverage = judge_eval.get("coverage", 0)
         self.run.accuracy = judge_eval.get("accuracy", 0)
+        self.run.factuality = judge_eval.get("factuality", 0)
         self.run.actionability = judge_eval.get("actionability", 0)
         self.run.avg_quality = judge_eval.get("avg_score", 0)
         self.run.vote = judge_eval.get("vote", "")
+        self.run.researcher_confidence = judge_eval.get("researcher_confidence", 0)
         self.run.critic_issues_total = critic_eval.get("total_issues", 0)
         self.run.critic_issues_high = critic_eval.get("high_severity", 0)
 
@@ -243,7 +247,7 @@ def detect_regressions(records: list[dict], window: int = 3,
     regressions = []
 
     # Quality metrics (higher is better)
-    for key in ("actionability", "avg_quality", "accuracy", "coverage"):
+    for key in ("actionability", "avg_quality", "accuracy", "coverage", "factuality"):
         current = latest.get(key, 0)
         prior_vals = [r.get(key, 0) for r in prior if isinstance(r.get(key), (int, float))]
         if not prior_vals:

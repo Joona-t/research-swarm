@@ -71,6 +71,9 @@ MIGRATIONS = [
     "ALTER TABLE insights ADD COLUMN last_accessed REAL DEFAULT 0",
     "ALTER TABLE insights ADD COLUMN is_meta INTEGER DEFAULT 0",
     "ALTER TABLE insights ADD COLUMN parent_insights TEXT DEFAULT '[]'",
+    # Techniques: provenance tracking (hallucination research)
+    "ALTER TABLE techniques ADD COLUMN source_url TEXT DEFAULT ''",
+    "ALTER TABLE techniques ADD COLUMN evidence_type TEXT DEFAULT 'unverified'",
 ]
 
 
@@ -130,8 +133,10 @@ class ResearchMemory:
 
     def store_technique(self, name: str, description: str = "",
                         source: str = "", domain: str = "",
-                        applicable_to: str = "") -> str:
-        """Store a discovered technique with temporal validity."""
+                        applicable_to: str = "",
+                        source_url: str = "",
+                        evidence_type: str = "unverified") -> str:
+        """Store a discovered technique with temporal validity and provenance."""
         now = time.time()
 
         with self._db:
@@ -141,19 +146,37 @@ class ResearchMemory:
 
             if existing:
                 # Update with richer data if we have it now
+                updates = []
+                params = []
                 if description and not existing[1]:
+                    updates.extend([
+                        "description = ?", "source = ?",
+                        "domain = ?", "applicable_to = ?",
+                    ])
+                    params.extend([description, source, domain, applicable_to])
+                if source_url:
+                    updates.append("source_url = ?")
+                    params.append(source_url)
+                if evidence_type != "unverified":
+                    updates.append("evidence_type = ?")
+                    params.append(evidence_type)
+                if updates:
+                    params.append(existing[0])
                     self._db.execute(
-                        "UPDATE techniques SET description = ?, source = ?, "
-                        "domain = ?, applicable_to = ? WHERE id = ?",
-                        (description, source, domain, applicable_to, existing[0]),
+                        f"UPDATE techniques SET {', '.join(updates)} WHERE id = ?",
+                        tuple(params),
                     )
                 return existing[0]
 
             tech_id = str(uuid.uuid4())
             self._db.execute(
-                "INSERT INTO techniques VALUES (?,?,?,?,?,?,0,0,?,0,0,0,?)",
+                "INSERT INTO techniques "
+                "(id, name, description, source, domain, applicable_to, "
+                "tried, worked, valid_from, valid_until, last_accessed, "
+                "access_count, created_at, source_url, evidence_type) "
+                "VALUES (?,?,?,?,?,?,0,0,?,0,0,0,?,?,?)",
                 (tech_id, name, description, source, domain, applicable_to,
-                 now, now),
+                 now, now, source_url, evidence_type),
             )
         return tech_id
 
@@ -336,7 +359,8 @@ class ResearchMemory:
 
         rows = self._db.execute(
             "SELECT id, name, description, domain, tried, worked, "
-            "valid_from, valid_until, last_accessed, access_count, created_at "
+            "valid_from, valid_until, last_accessed, access_count, created_at, "
+            "source_url, evidence_type "
             "FROM techniques"
         ).fetchall()
 
@@ -345,7 +369,8 @@ class ResearchMemory:
         results = []
 
         for (tech_id, name, desc, domain, tried, worked, valid_from,
-             valid_until, last_accessed, access_count, created_at) in rows:
+             valid_until, last_accessed, access_count, created_at,
+             source_url, evidence_type) in rows:
 
             # Temporal validity check: skip invalidated techniques
             if valid_until > 0 and valid_until < now:
@@ -379,6 +404,8 @@ class ResearchMemory:
                 "tried": bool(tried),
                 "worked": bool(worked),
                 "score": round(score, 4),
+                "source_url": source_url or "",
+                "evidence_type": evidence_type or "unverified",
             })
 
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -423,8 +450,11 @@ class ResearchMemory:
                 if t["tried"]:
                     status = " **[PROVEN]**" if t["worked"] else " **[FAILED]**"
                 desc = f": {t['description']}" if t["description"] else ""
+                evidence = t.get("evidence_type", "unverified")
+                evidence_tag = f" [{evidence}]" if evidence != "unverified" else ""
                 sections.append(
-                    f"- **{t['name']}**{desc}{status} (score={t['score']})"
+                    f"- **{t['name']}**{desc}{status}{evidence_tag} "
+                    f"(score={t['score']})"
                 )
 
         return "\n".join(sections)

@@ -83,6 +83,15 @@ RESEARCHER_OUTPUT_SCHEMA = json.dumps({
                         "type": "string",
                         "description": "When to use this technique and when not to.",
                     },
+                    "source_url": {
+                        "type": "string",
+                        "description": "URL of the primary source (paper, repo, blog). Empty string if from parametric knowledge.",
+                    },
+                    "evidence_type": {
+                        "type": "string",
+                        "enum": ["peer_reviewed", "preprint", "blog", "repo", "unverified"],
+                        "description": "How well-supported this technique is. Use 'unverified' if unsure.",
+                    },
                 },
                 "required": ["name", "description"],
             },
@@ -192,6 +201,10 @@ JUDGE_OUTPUT_SCHEMA = json.dumps({
         "actionability_score": {
             "type": "number", "minimum": 0, "maximum": 10,
             "description": "Can these findings be applied to the codebase within a week? This is THE primary metric. 8+ = start today, 6-7 = needs some work, <6 = not actionable.",
+        },
+        "factuality_score": {
+            "type": "number", "minimum": 0, "maximum": 10,
+            "description": "How well are claims supported by cited evidence? 8+ = all claims sourced, 5-7 = most sourced, <5 = many unsourced claims.",
         },
         "quality_vote": {
             "type": "string",
@@ -447,29 +460,36 @@ Produce:
 Follow Karpathy's autoresearch discipline: one change at a time, measure, keep or discard.""",
 
     # --- QUALITY GATE (Phase 4) ---
-    "critic": """You are a Critic agent in a 14-agent AI research swarm.
+    "critic": """You are a Skeptical Peer Reviewer in a 14-agent AI research swarm.
 
-Your job: challenge the research findings before they're accepted. You are the quality gate.
+Your mandate: adversarially verify every factual claim before acceptance.
 
-Look for:
-- Hype vs substance — are claims backed by evidence?
-- Reproducibility — can these techniques actually be implemented?
-- Cherry-picking — are findings selectively chosen to support a narrative?
-- Missing context — what important caveats are being omitted?
-- Complexity cost — is the improvement worth the added complexity?
+For EACH numerical claim (percentages, benchmarks, accuracy figures):
+1. Does it cite a specific paper, benchmark, or dataset by name?
+2. Is the citation temporally accurate (paper date matches claimed timeframe)?
+3. Could this be consensus amplification — multiple researchers echoing one unsourced claim?
 
-Be rigorous but fair. Flag real issues, not nitpicks. Your verdict determines whether the judge sees concerns.""",
+Additionally check:
+- Reproducibility: can the technique be implemented from the description alone?
+- Baseline context: are improvements stated relative to a named baseline?
+- Failure modes: what breaks when this technique is applied at scale?
+- Cherry-picking: are findings selectively chosen to support a narrative?
+- Complexity cost: is the improvement worth the added complexity?
+
+Rate severity: high = factually wrong or unattributed number, medium = missing context or baseline, low = style or nitpick.
+Your verdict determines whether the judge sees concerns. Be rigorous but fair.""",
 
     "judge": """You are the Judge agent in a 14-agent AI research swarm. You run on Opus because your decision is the highest-stakes call in the pipeline.
 
 You receive ALL outputs: scout findings, researcher analysis, applied recommendations, and the critic's assessment.
 
-Score on three dimensions (0-10 each):
+Score on four dimensions (0-10 each):
 - Coverage: did the research adequately explore the topic?
 - Accuracy: are the findings technically correct?
+- Factuality: how well are claims supported by cited evidence? Check: do numerical claims cite specific papers? Are citations temporally accurate? Are improvements stated relative to named baselines?
 - Actionability: can these findings be applied to the codebase within a week?
 
-The actionability score is the primary metric. Research that's interesting but not actionable gets discarded.
+The actionability score is the primary metric. Research that's interesting but not actionable gets discarded. Factuality is the secondary metric — flag unsourced quantitative claims.
 
 Vote KEEP if actionability >= 6. Vote DISCARD if below. Be decisive.""",
 
