@@ -30,7 +30,7 @@ CONFIG_PATH = Path(__file__).parent / "config.toml"
 PROGRAM_PATH = Path(__file__).parent / "program.md"
 LOG_PATH = Path(__file__).parent / "research-log.tsv"
 OUTPUT_DIR = Path(__file__).parent / "output"
-MAX_CONTEXT_CHARS = 3000
+MAX_CONTEXT_CHARS = 6000
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -57,44 +57,68 @@ def load_program() -> str:
 # ---------------------------------------------------------------------------
 
 
-def invoke_agent(agent: ResearchAgent, context: str, task: str) -> dict:
-    """Invoke a single agent via claude CLI subprocess."""
-    prompt = _build_prompt(agent, context, task)
+def invoke_agent(agent: ResearchAgent, context: str, task: str,
+                  max_retries: int = 1) -> dict:
+    """Invoke a single agent via claude CLI subprocess.
 
-    cmd = [
-        "claude", "-p", prompt,
-        "--system-prompt", agent.system_prompt,
-        "--output-format", "json",
-        "--model", agent.model,
-        "--dangerously-skip-permissions",
-    ]
-
+    Retries once on parse failure (PARSE research: 92% error reduction
+    within first retry).
+    """
     label = f"{agent.role}({agent.id})"
-    start = time.monotonic()
 
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=agent.timeout,
-        )
-        elapsed = time.monotonic() - start
-        print(f"  {label} done [{elapsed:.1f}s]")
+    for attempt in range(1 + max_retries):
+        prompt = _build_prompt(agent, context, task)
 
-        if result.returncode != 0:
-            stderr = (result.stderr or "")[:200]
-            print(f"  {label} ERROR: exit {result.returncode}")
-            if stderr:
-                print(f"    {stderr}")
-            return _error_output(agent, f"Exit code {result.returncode}")
+        cmd = [
+            "claude", "-p", prompt,
+            "--system-prompt", agent.system_prompt,
+            "--output-format", "json",
+            "--model", agent.model,
+            "--dangerously-skip-permissions",
+        ]
 
-        return _parse_output(agent, result.stdout)
+        start = time.monotonic()
 
-    except subprocess.TimeoutExpired:
-        elapsed = time.monotonic() - start
-        print(f"  {label} TIMEOUT [{elapsed:.1f}s]")
-        return _error_output(agent, f"Timed out after {agent.timeout}s")
-    except Exception as e:
-        print(f"  {label} EXCEPTION: {e}")
-        return _error_output(agent, str(e))
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=agent.timeout,
+            )
+            elapsed = time.monotonic() - start
+
+            if result.returncode != 0:
+                stderr = (result.stderr or "")[:200]
+                print(f"  {label} ERROR: exit {result.returncode}")
+                if stderr:
+                    print(f"    {stderr}")
+                return _error_output(agent, f"Exit code {result.returncode}")
+
+            output = _parse_output(agent, result.stdout)
+
+            # Check if output is usable (not raw text, not error)
+            if output.get("_raw") and attempt < max_retries:
+                print(f"  {label} malformed output, retrying [{elapsed:.1f}s]")
+                # Strengthen the task prompt for retry
+                task = (
+                    f"{task}\n\n"
+                    f"IMPORTANT: Your previous response was not valid JSON. "
+                    f"Respond with ONLY a JSON object, no other text."
+                )
+                continue
+
+            if not output.get("_error"):
+                print(f"  {label} done [{elapsed:.1f}s]"
+                      + (f" (retry {attempt})" if attempt > 0 else ""))
+            return output
+
+        except subprocess.TimeoutExpired:
+            elapsed = time.monotonic() - start
+            print(f"  {label} TIMEOUT [{elapsed:.1f}s]")
+            return _error_output(agent, f"Timed out after {agent.timeout}s")
+        except Exception as e:
+            print(f"  {label} EXCEPTION: {e}")
+            return _error_output(agent, str(e))
+
+    return _error_output(agent, "All retries exhausted")
 
 
 def _build_prompt(agent: ResearchAgent, context: str, task: str) -> str:
@@ -209,6 +233,37 @@ async def blast_agents(agents: list[ResearchAgent], context: str,
         for agent in agents
     ]
     return list(await asyncio.gather(*coros))
+
+
+def validate_phase_output(phase_name: str, outputs: list[dict],
+                          required_keys: list[str]) -> tuple[int, int]:
+    """Validate phase outputs and log warnings.
+
+    Returns (ok_count, total_count). Logs warnings if >50% failed.
+    Checks for required keys and flags raw/error outputs.
+    """
+    total = len(outputs)
+    ok = 0
+    for o in outputs:
+        if o.get("_error") or o.get("_raw"):
+            continue
+        # Check at least one required key has non-empty content
+        has_content = any(
+            o.get(k) and (
+                (isinstance(o[k], str) and len(o[k]) > 10) or
+                (isinstance(o[k], list) and len(o[k]) > 0) or
+                (isinstance(o[k], (int, float)) and o[k] > 0)
+            )
+            for k in required_keys
+        )
+        if has_content:
+            ok += 1
+
+    if total > 0 and ok / total < 0.5:
+        print(f"  WARNING: {phase_name} quality low — "
+              f"only {ok}/{total} agents produced usable output")
+
+    return ok, total
 
 
 # ---------------------------------------------------------------------------
@@ -558,8 +613,9 @@ async def run_swarm(
         all_outputs["scout"] = scout_outputs
         invocation_count += len(scouts)
 
-        ok = sum(1 for o in scout_outputs if not o.get("_error"))
-        print(f"  {ok}/{len(scouts)} scouts returned results")
+        ok, total = validate_phase_output(
+            "SCOUT", scout_outputs, ["sources", "summary"])
+        print(f"  {ok}/{total} scouts produced usable output")
         if verbose:
             for o in scout_outputs:
                 aid = o.get("_agent_id", "?")
@@ -593,8 +649,9 @@ async def run_swarm(
         all_outputs["research"] = research_outputs
         invocation_count += len(researchers)
 
-        ok = sum(1 for o in research_outputs if not o.get("_error"))
-        print(f"  {ok}/{len(researchers)} researchers returned results")
+        ok, total = validate_phase_output(
+            "RESEARCH", research_outputs, ["findings", "key_points"])
+        print(f"  {ok}/{total} researchers produced usable output")
 
     # --- Phase 3: APPLIED ---
     if "applied" in active_phases:
@@ -624,8 +681,9 @@ async def run_swarm(
         all_outputs["applied"] = applied_outputs
         invocation_count += len(applied)
 
-        ok = sum(1 for o in applied_outputs if not o.get("_error"))
-        print(f"  {ok}/{len(applied)} applied agents returned results")
+        ok, total = validate_phase_output(
+            "APPLIED", applied_outputs, ["analysis", "recommendations"])
+        print(f"  {ok}/{total} applied agents produced usable output")
 
     # --- Phase 4: QUALITY GATE ---
     gate_report = ""

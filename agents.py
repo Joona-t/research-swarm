@@ -1,10 +1,15 @@
-"""Research Swarm — 14 agent definitions and role prompts."""
+"""Research Swarm — 14 agent definitions and role prompts.
+
+Schema design follows PARSE methodology: every field has a description,
+enum constraints where values are finite, examples for complex types,
+and nesting kept to ≤3 levels.
+"""
 
 import json
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
-# Agent output schema
+# Agent output schemas (PARSE-optimized)
 # ---------------------------------------------------------------------------
 
 SCOUT_OUTPUT_SCHEMA = json.dumps({
@@ -12,25 +17,37 @@ SCOUT_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "sources": {
             "type": "array",
+            "description": "List of relevant sources found. Include 3-8 sources.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string"},
-                    "url": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "relevance": {"type": "number", "minimum": 0, "maximum": 1},
+                    "title": {
+                        "type": "string",
+                        "description": "Paper title, repo name, or benchmark name. Be exact.",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL if known. Leave empty string if unknown.",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "2-3 sentence summary of what this source contributes. Be specific about results.",
+                    },
+                    "relevance": {
+                        "type": "number", "minimum": 0, "maximum": 1,
+                        "description": "How relevant to the research topic. 0.8+ = highly relevant, 0.5-0.8 = somewhat, <0.5 = tangential.",
+                    },
                 },
-                "required": ["title", "summary"],
+                "required": ["title", "summary", "relevance"],
             },
-            "description": "Relevant sources found.",
         },
         "summary": {
             "type": "string",
-            "description": "Brief overview of what was found.",
+            "description": "3-5 sentence overview of all findings. What's the landscape? What's the consensus?",
         },
         "relevance_score": {
             "type": "number", "minimum": 0, "maximum": 1,
-            "description": "How relevant the findings are to the research topic.",
+            "description": "Overall relevance of your findings to the research topic.",
         },
     },
     "required": ["sources", "summary", "relevance_score"],
@@ -41,32 +58,41 @@ RESEARCHER_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "findings": {
             "type": "string",
-            "description": "Detailed analysis from your research domain.",
+            "description": "Detailed analysis from your research domain. 200-500 words. Be technical and specific.",
         },
         "key_points": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Most important takeaways.",
+            "description": "3-5 most important takeaways as complete sentences. Each should be independently useful.",
         },
         "techniques": {
             "type": "array",
+            "description": "Named techniques discovered. Include 2-5 techniques.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "applicability": {"type": "string"},
+                    "name": {
+                        "type": "string",
+                        "description": "Short name for the technique, e.g. 'Chain-of-Thought Prompting'.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "What it does and how it works. 1-3 sentences.",
+                    },
+                    "applicability": {
+                        "type": "string",
+                        "description": "When to use this technique and when not to.",
+                    },
                 },
                 "required": ["name", "description"],
             },
-            "description": "Named techniques discovered.",
         },
         "confidence": {
             "type": "number", "minimum": 0, "maximum": 1,
-            "description": "Confidence in accuracy of findings.",
+            "description": "Your confidence in accuracy. 0.8+ = well-supported, 0.5-0.8 = reasonable, <0.5 = speculative.",
         },
     },
-    "required": ["findings", "key_points", "confidence"],
+    "required": ["findings", "key_points", "techniques", "confidence"],
 })
 
 APPLIED_OUTPUT_SCHEMA = json.dumps({
@@ -74,25 +100,40 @@ APPLIED_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "analysis": {
             "type": "string",
-            "description": "Analysis of how findings apply to the codebase.",
+            "description": "How the research findings apply to the codebase. 100-300 words. Reference specific patterns.",
         },
         "recommendations": {
             "type": "array",
+            "description": "3-7 concrete recommendations, ordered by priority.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string"},
-                    "file": {"type": "string"},
-                    "priority": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "effort": {"type": "string", "enum": ["small", "medium", "large"]},
+                    "action": {
+                        "type": "string",
+                        "description": "What to change. Be specific: 'Add retry loop in invoke_agent()' not 'improve error handling'.",
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "File path to modify, if known. Empty string if general.",
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                        "description": "high = do this week, medium = do this month, low = nice-to-have.",
+                    },
+                    "effort": {
+                        "type": "string",
+                        "enum": ["small", "medium", "large"],
+                        "description": "small = <1 hour, medium = 1-4 hours, large = >4 hours.",
+                    },
                 },
-                "required": ["action", "priority"],
+                "required": ["action", "priority", "effort"],
             },
-            "description": "Concrete recommendations for the codebase.",
         },
         "priority": {
-            "type": "string", "enum": ["high", "medium", "low"],
-            "description": "Overall priority of these recommendations.",
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Overall priority of this set of recommendations.",
         },
     },
     "required": ["analysis", "recommendations", "priority"],
@@ -103,24 +144,35 @@ CRITIC_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "issues": {
             "type": "array",
+            "description": "Issues found with the research. Include 3-8 issues, ordered by severity.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "claim": {"type": "string"},
-                    "problem": {"type": "string"},
-                    "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "claim": {
+                        "type": "string",
+                        "description": "The specific claim being challenged. Quote or paraphrase the original.",
+                    },
+                    "problem": {
+                        "type": "string",
+                        "description": "What's wrong with this claim. Be specific about the flaw.",
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                        "description": "high = factually wrong or misleading, medium = missing context, low = nitpick.",
+                    },
                 },
                 "required": ["claim", "problem", "severity"],
             },
-            "description": "Issues found with the research.",
         },
         "confidence": {
             "type": "number", "minimum": 0, "maximum": 1,
-            "description": "Confidence in critique accuracy.",
+            "description": "Your confidence in the critique. 0.8+ = strong evidence, 0.5-0.8 = reasonable concerns, <0.5 = uncertain.",
         },
         "verdict": {
-            "type": "string", "enum": ["pass", "concerns", "fail"],
-            "description": "Overall verdict on research quality.",
+            "type": "string",
+            "enum": ["pass", "concerns", "fail"],
+            "description": "pass = research is solid, concerns = issues but usable, fail = too many flaws to trust.",
         },
     },
     "required": ["issues", "confidence", "verdict"],
@@ -131,23 +183,24 @@ JUDGE_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "coverage_score": {
             "type": "number", "minimum": 0, "maximum": 10,
-            "description": "How well the topic was covered (0-10).",
+            "description": "How well the topic was covered. 8+ = thorough, 5-7 = adequate, <5 = incomplete.",
         },
         "accuracy_score": {
             "type": "number", "minimum": 0, "maximum": 10,
-            "description": "How accurate the findings are (0-10).",
+            "description": "How accurate the findings are. 8+ = well-supported, 5-7 = mostly correct, <5 = unreliable.",
         },
         "actionability_score": {
             "type": "number", "minimum": 0, "maximum": 10,
-            "description": "How actionable the recommendations are (0-10). This is the primary metric.",
+            "description": "Can these findings be applied to the codebase within a week? This is THE primary metric. 8+ = start today, 6-7 = needs some work, <6 = not actionable.",
         },
         "quality_vote": {
-            "type": "string", "enum": ["keep", "discard"],
-            "description": "Final keep/discard decision.",
+            "type": "string",
+            "enum": ["keep", "discard"],
+            "description": "keep if actionability >= 6, discard if below.",
         },
         "notes": {
             "type": "string",
-            "description": "Explanation for the decision.",
+            "description": "2-4 sentence explanation of your decision. What's strong, what's weak, why this vote.",
         },
     },
     "required": ["coverage_score", "accuracy_score", "actionability_score", "quality_vote", "notes"],
@@ -158,25 +211,41 @@ SYNTHESIZER_OUTPUT_SCHEMA = json.dumps({
     "properties": {
         "brief": {
             "type": "string",
-            "description": "Complete research brief in markdown. This is the main output.",
+            "description": "Complete research brief in markdown. This is the main output. 500-2000 words. Include: #1 finding, actionable techniques with code examples, specific code changes table, 3-5 experiments with keep/discard criteria, critic mitigations.",
         },
         "key_finding": {
             "type": "string",
-            "description": "Single most important finding (one sentence, for the log).",
+            "description": "Single most important finding in one sentence. This gets stored in long-term memory.",
         },
         "techniques_found": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Named techniques to index in memory.",
+            "description": "Named techniques to index. Format: 'Technique Name — brief description'. Include 5-10 techniques.",
         },
         "experiments_to_try": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Concrete experiments to run next.",
+            "description": "Concrete experiments with keep/discard criteria. Include 3-5 experiments.",
         },
     },
-    "required": ["brief", "key_finding"],
+    "required": ["brief", "key_finding", "techniques_found", "experiments_to_try"],
 })
+
+
+# ---------------------------------------------------------------------------
+# JSON output instruction appended to every agent's system prompt
+# ---------------------------------------------------------------------------
+
+JSON_OUTPUT_INSTRUCTION = """
+
+CRITICAL OUTPUT FORMAT: You MUST respond with a single valid JSON object. No markdown, no explanation, no preamble — just the JSON. Example structure:
+{"key": "value", "array": ["item1", "item2"], "number": 0.8}"""
+
+# For complex reasoning agents (judge, synthesizer): two-pass instruction
+# lets them think freely before structuring output
+TWO_PASS_INSTRUCTION = """
+
+OUTPUT FORMAT: First, think through your analysis step by step. Then, output your final answer as a single valid JSON object. Your response should end with the JSON — everything before it is your reasoning (which will be ignored). Only the JSON is parsed."""
 
 
 # ---------------------------------------------------------------------------
@@ -389,8 +458,15 @@ The brief should be something a developer can read in 5 minutes and start implem
 # ---------------------------------------------------------------------------
 
 def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
-    """Build all 14 agents with configured models and timeouts."""
+    """Build all 14 agents with configured models and timeouts.
+
+    Applies JSON output instruction to all prompts, with two-pass
+    variant for complex reasoning agents (judge, synthesizer).
+    """
     agents = []
+
+    # Agents that do complex reasoning get two-pass instruction
+    two_pass_agents = {"judge", "synthesizer"}
 
     # Phase 1: Scouts
     for scout_id in ("arxiv-scout", "impl-scout", "bench-scout"):
@@ -398,7 +474,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=scout_id,
             role="scout",
             phase="scout",
-            system_prompt=ROLE_PROMPTS[scout_id],
+            system_prompt=ROLE_PROMPTS[scout_id] + JSON_OUTPUT_INSTRUCTION,
             model=models.get("scout", "haiku"),
             output_schema=SCOUT_OUTPUT_SCHEMA,
             timeout=timeouts.get("scout", 120),
@@ -411,7 +487,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=r_id,
             role="researcher",
             phase="research",
-            system_prompt=ROLE_PROMPTS[r_id],
+            system_prompt=ROLE_PROMPTS[r_id] + JSON_OUTPUT_INSTRUCTION,
             model=models.get("researcher", "sonnet"),
             output_schema=RESEARCHER_OUTPUT_SCHEMA,
             timeout=timeouts.get("researcher", 180),
@@ -423,7 +499,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             id=a_id,
             role="applied",
             phase="applied",
-            system_prompt=ROLE_PROMPTS[a_id],
+            system_prompt=ROLE_PROMPTS[a_id] + JSON_OUTPUT_INSTRUCTION,
             model=models.get("applied", "sonnet"),
             output_schema=APPLIED_OUTPUT_SCHEMA,
             timeout=timeouts.get("applied", 150),
@@ -434,7 +510,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="critic",
         role="quality",
         phase="quality",
-        system_prompt=ROLE_PROMPTS["critic"],
+        system_prompt=ROLE_PROMPTS["critic"] + JSON_OUTPUT_INSTRUCTION,
         model=models.get("critic", "sonnet"),
         output_schema=CRITIC_OUTPUT_SCHEMA,
         timeout=timeouts.get("quality", 120),
@@ -443,7 +519,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="judge",
         role="quality",
         phase="quality",
-        system_prompt=ROLE_PROMPTS["judge"],
+        system_prompt=ROLE_PROMPTS["judge"] + TWO_PASS_INSTRUCTION,
         model=models.get("judge", "opus"),
         output_schema=JUDGE_OUTPUT_SCHEMA,
         timeout=timeouts.get("quality", 120),
@@ -454,7 +530,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         id="synthesizer",
         role="output",
         phase="synthesis",
-        system_prompt=ROLE_PROMPTS["synthesizer"],
+        system_prompt=ROLE_PROMPTS["synthesizer"] + TWO_PASS_INSTRUCTION,
         model=models.get("synthesizer", "opus"),
         output_schema=SYNTHESIZER_OUTPUT_SCHEMA,
         timeout=timeouts.get("synthesizer", 180),
