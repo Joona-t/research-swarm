@@ -1,0 +1,31 @@
+# Research Swarm Configuration
+
+[swarm]
+max_rounds = 1                # phases are sequential, not iterative
+default_model = "sonnet"
+
+[timeouts]
+scout = 120
+researcher = 180
+applied = 150
+quality = 120
+synthesizer = 180
+
+[models]
+scout = "haiku"
+researcher = "sonnet"
+applied = "sonnet"
+critic = "sonnet"
+judge = "opus"
+synthesizer = "opus"
+
+[memory]
+db_path = "memory.db"
+max_context_chars = 3000
+
+[output]
+dir = "./output"
+log_file = "research-log.tsv"
+
+[quality]
+min_actionability = 6         # 0-10, below this = discard

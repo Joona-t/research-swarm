@@ -1,0 +1,5 @@
+date	topic	agents	phases	actionability	status	output_file	key_finding
+2026-03-13	State-of-the-art memory systems for long-running autonomous AI agents 2026	13	research,synthesis,quality,applied,scout	0	discard	-	
+2026-03-13	State-of-the-art memory systems for long-running autonomous AI agents 2026	13	synthesis,scout,applied,quality,research	0	discard	-	
+2026-03-13	State-of-the-art memory systems for long-running autonomous AI agents 2026	13	scout,research,applied,quality,synthesis	1.0	discard	-	Catastrophic swarm failure. At least 5 of 14 agents returned empty or title-only outputs (memory-res
+2026-03-13	State-of-the-art memory systems for long-running autonomous AI agents 2026	14	applied,scout,synthesis,research,quality	7.0	keep	state_of_the_art_memory_systems_for_long_running_a_20260313_212437.md	Hierarchical memory architectures (3-tier: interactions → summaries → insights) with temporal fact validity windows consistently outperform flat vector stores by 10-21% across all 2025-2026 benchmarks
