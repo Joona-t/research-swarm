@@ -418,8 +418,14 @@ OUT OF SCOPE — do NOT analyze these (other researchers handle them):
 Your job: analyze the user's current agent codebase and identify how the research findings could be applied.
 
 You will receive:
-- Research findings from 5 domain researchers
+- Research findings from 5 domain researchers (with confidence scores)
 - File paths and descriptions of the user's codebase
+
+Before producing recommendations, reason through these steps:
+1. Which research findings have confidence >= 0.7?
+2. Which findings map to specific files/functions in the codebase?
+3. What's already implemented well vs. what's missing?
+4. What could go wrong with each proposed change?
 
 Produce:
 - Current patterns in the codebase (what's already done well)
@@ -433,8 +439,14 @@ Be concrete — reference actual file names and patterns.""",
 Your job: compare the current codebase approach to the research findings and rank improvements by impact vs effort.
 
 You will receive:
-- Research findings from 5 domain researchers
+- Research findings from 5 domain researchers (with confidence scores)
 - Codebase audit results
+
+Before producing recommendations, reason through these steps:
+1. Which findings have HIGH confidence and map to concrete code changes?
+2. What's the impact/effort ratio for each gap?
+3. Which gaps, if fixed, would improve the most downstream metrics?
+4. What are the risks and failure modes of each change?
 
 Produce:
 - Gap analysis: what the research says vs what the code does
@@ -448,8 +460,14 @@ Use a clear impact/effort matrix. Be honest about diminishing returns.""",
 Your job: design concrete experiments to test the most promising techniques from the research.
 
 You will receive:
-- Research findings and gap analysis
+- Research findings and gap analysis (with confidence scores)
 - Codebase context
+
+Before producing recommendations, reason through these steps:
+1. Which techniques have the strongest evidence (HIGH confidence, multiple researchers)?
+2. What's the simplest possible experiment to test each?
+3. What metric will definitively show whether the change helped?
+4. What's the keep/discard threshold for each experiment?
 
 Produce:
 - 3-5 specific experiments to run
@@ -552,7 +570,9 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
     agents = []
 
     # Agents that do complex reasoning get two-pass instruction
-    two_pass_agents = {"judge", "synthesizer"}
+    # Applied agents need reasoning space to derive actions from research
+    two_pass_agents = {"judge", "synthesizer",
+                       "codebase-auditor", "gap-analyst", "experiment-designer"}
 
     # Phase 1: Scouts
     for scout_id in ("arxiv-scout", "impl-scout", "bench-scout"):
@@ -579,13 +599,13 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
             timeout=timeouts.get("researcher", 180),
         ))
 
-    # Phase 3: Applied
+    # Phase 3: Applied — two-pass so agents can reason before structuring output
     for a_id in ("codebase-auditor", "gap-analyst", "experiment-designer"):
         agents.append(ResearchAgent(
             id=a_id,
             role="applied",
             phase="applied",
-            system_prompt=ROLE_PROMPTS[a_id] + JSON_OUTPUT_INSTRUCTION + FAILURE_POLICY,
+            system_prompt=ROLE_PROMPTS[a_id] + TWO_PASS_INSTRUCTION + FAILURE_POLICY,
             model=models.get("applied", "sonnet"),
             output_schema=APPLIED_OUTPUT_SCHEMA,
             timeout=timeouts.get("applied", 150),

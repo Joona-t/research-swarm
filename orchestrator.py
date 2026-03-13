@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -70,9 +71,18 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
     """Invoke a single agent via claude CLI subprocess.
 
     Retries once on parse failure (PARSE research: 92% error reduction
-    within first retry).
+    within first retry). Each invocation gets a trace_id for failure attribution.
     """
     label = f"{agent.role}({agent.id})"
+    trace_id = str(uuid.uuid4())
+
+    def _tag(output: dict) -> dict:
+        """Inject trace metadata into every output."""
+        output["_trace_id"] = trace_id
+        output["_wall_clock_s"] = round(time.monotonic() - _invoke_start, 1)
+        return output
+
+    _invoke_start = time.monotonic()
 
     for attempt in range(1 + max_retries):
         prompt = _build_prompt(agent, context, task)
@@ -98,7 +108,7 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
                 print(f"  {label} ERROR: exit {result.returncode}")
                 if stderr:
                     print(f"    {stderr}")
-                return _error_output(agent, f"Exit code {result.returncode}")
+                return _tag(_error_output(agent, f"Exit code {result.returncode}"))
 
             output = _parse_output(agent, result.stdout)
 
@@ -116,7 +126,7 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
             if not output.get("_error"):
                 print(f"  {label} done [{elapsed:.1f}s]"
                       + (f" (retry {attempt})" if attempt > 0 else ""))
-            return output
+            return _tag(output)
 
         except subprocess.TimeoutExpired as e:
             elapsed = time.monotonic() - start
@@ -129,14 +139,14 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
                 if not output.get("_raw") and not output.get("_error"):
                     output["_partial"] = True
                     print(f"  {label} TIMEOUT [{elapsed:.1f}s] (recovered partial output)")
-                    return output
+                    return _tag(output)
             print(f"  {label} TIMEOUT [{elapsed:.1f}s]")
-            return _error_output(agent, f"Timed out after {agent.timeout}s")
+            return _tag(_error_output(agent, f"Timed out after {agent.timeout}s"))
         except Exception as e:
             print(f"  {label} EXCEPTION: {e}")
-            return _error_output(agent, str(e))
+            return _tag(_error_output(agent, str(e)))
 
-    return _error_output(agent, "All retries exhausted")
+    return _tag(_error_output(agent, "All retries exhausted"))
 
 
 def _build_prompt(agent: ResearchAgent, context: str, task: str) -> str:
@@ -554,7 +564,12 @@ def narrative_cast_research(research_outputs: list[dict], topic: str) -> str:
         if not isinstance(techniques, list):
             techniques = []
 
-        lines.append(f"**{domain} perspective** ({agent_id}):")
+        # Propagate confidence so applied agents can prioritize
+        confidence = o.get("confidence", 0.5)
+        if not isinstance(confidence, (int, float)):
+            confidence = 0.5
+        conf_label = "HIGH" if confidence >= 0.8 else "MED" if confidence >= 0.5 else "LOW"
+        lines.append(f"**{domain} perspective** ({agent_id}, confidence={confidence:.2f} [{conf_label}]):")
         if findings:
             lines.append(findings)
         if key_points:
