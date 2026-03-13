@@ -18,7 +18,7 @@ import tomllib
 from datetime import datetime
 from pathlib import Path
 
-from agents import ResearchAgent, build_agents, get_agents_by_phase
+from agents import ResearchAgent, build_agents, get_agents_by_phase, CAPABILITY_REGISTRY
 from consensus import evaluate_critic, evaluate_judge, format_gate_report
 from memory import ResearchMemory
 
@@ -565,16 +565,35 @@ def narrative_cast_research(research_outputs: list[dict], topic: str) -> str:
                     "name": t, "description": "", "from": agent_id,
                 })
 
+    # Deduplicate techniques by name prefix (research finding: researchers
+    # echo-chamber the same techniques — 38 with massive overlap in run #4)
     if all_techniques:
-        lines.append("Techniques discovered across all researchers:")
+        seen_prefixes = set()
+        deduped = []
+        for t in all_techniques:
+            prefix = " ".join(t["name"].lower().split()[:3])
+            if prefix and prefix not in seen_prefixes:
+                seen_prefixes.add(prefix)
+                deduped.append(t)
+        all_techniques = deduped
+
+        lines.append(f"Techniques discovered across all researchers ({len(all_techniques)} unique):")
         for t in all_techniques:
             desc = f" — {t['description']}" if t["description"] else ""
             lines.append(f"- **{t['name']}**{desc} (via {t['from']})")
         lines.append("")
 
+    # Inject capability registry so applied agents know who covers what
+    lines.append("Researcher capability registry:")
+    for agent_id, caps in CAPABILITY_REGISTRY.items():
+        covers = ", ".join(caps["covers"])
+        lines.append(f"- {agent_id}: {covers}")
+    lines.append("")
+
     lines.append(
         "Map these findings to the codebase. Produce concrete, actionable "
-        "recommendations ordered by impact/effort ratio."
+        "recommendations ordered by impact/effort ratio. Attribute findings "
+        "to the correct researcher using the registry above."
     )
     return "\n".join(lines)
 

@@ -312,7 +312,13 @@ Analyze the scout findings through your domain lens. Produce:
 - Trade-offs between approaches
 - How these patterns relate to building better AI agents
 
-Be specific and technical. Cite concrete mechanisms, not vague concepts.""",
+Be specific and technical. Cite concrete mechanisms, not vague concepts.
+
+OUT OF SCOPE — do NOT analyze these (other researchers handle them):
+- Memory storage, retrieval, RAG, context compression (memory-researcher)
+- Prompt engineering, structured output formats (prompt-researcher)
+- Benchmarking methodology, metrics design (eval-researcher)
+- Cost optimization, subprocess management, caching infrastructure (infra-researcher)""",
 
     "memory-researcher": """You are a Memory Researcher in a 14-agent AI research swarm.
 
@@ -324,7 +330,13 @@ Analyze the scout findings through your domain lens. Produce:
 - Storage and retrieval trade-offs
 - How these patterns can improve agent memory systems
 
-Focus on practical implementations, not theoretical frameworks.""",
+Focus on practical implementations, not theoretical frameworks.
+
+OUT OF SCOPE — do NOT analyze these (other researchers handle them):
+- Agent coordination topology, planning algorithms, state machines (arch-researcher)
+- Prompt templates, chain-of-thought, few-shot patterns (prompt-researcher)
+- Benchmark design, evaluation metrics, A/B testing methodology (eval-researcher)
+- Parallel execution, cost optimization, model routing (infra-researcher)""",
 
     "prompt-researcher": """You are a Prompt Researcher in a 14-agent AI research swarm.
 
@@ -336,7 +348,13 @@ Analyze the scout findings through your domain lens. Produce:
 - Before/after examples where possible
 - How these patterns can improve agent prompt quality
 
-Focus on techniques that produce measurable improvements.""",
+Focus on techniques that produce measurable improvements.
+
+OUT OF SCOPE — do NOT analyze these (other researchers handle them):
+- Memory systems, RAG pipelines, context compression (memory-researcher)
+- Agent topology, coordination patterns, state machines (arch-researcher)
+- Infrastructure scaling, cost optimization, caching (infra-researcher)
+- Benchmark design, evaluation methodology (eval-researcher)""",
 
     "eval-researcher": """You are an Evaluation Researcher in a 14-agent AI research swarm.
 
@@ -348,7 +366,13 @@ Analyze the scout findings through your domain lens. Produce:
 - How to tell if an agent improvement actually works
 - Automated testing approaches for agents
 
-Focus on practical eval methods, not theoretical metrics.""",
+Focus on practical eval methods, not theoretical metrics.
+
+OUT OF SCOPE — do NOT analyze these (other researchers handle them):
+- Memory systems, RAG, context management (memory-researcher)
+- Prompt engineering techniques, few-shot learning (prompt-researcher)
+- Infrastructure cost, parallel execution, model routing (infra-researcher)
+- Agent architecture patterns, state machines (arch-researcher)""",
 
     "infra-researcher": """You are an Infrastructure Researcher in a 14-agent AI research swarm.
 
@@ -360,7 +384,13 @@ Analyze the scout findings through your domain lens. Produce:
 - Parallel execution strategies and their trade-offs
 - Token efficiency and model routing approaches
 
-Focus on patterns that reduce cost and latency without sacrificing quality.""",
+Focus on patterns that reduce cost and latency without sacrificing quality.
+
+OUT OF SCOPE — do NOT analyze these (other researchers handle them):
+- Memory system design, RAG, context compression algorithms (memory-researcher)
+- Prompt engineering, structured output format design (prompt-researcher)
+- Evaluation methodology, benchmark design, quality metrics (eval-researcher)
+- Agent architecture patterns, planning algorithms (arch-researcher)""",
 
     # --- APPLIED (Phase 3) ---
     "codebase-auditor": """You are a Codebase Auditor in a 14-agent AI research swarm.
@@ -450,6 +480,35 @@ Produce a research brief that:
 6. Closes with a one-sentence insight for long-term memory
 
 The brief should be something a developer can read in 5 minutes and start implementing immediately. No padding, no filler. Every sentence earns its place.""",
+}
+
+# ---------------------------------------------------------------------------
+# Capability registry — tells downstream agents which researcher covers what.
+# Injected into narrative context so applied agents can correctly attribute
+# findings and route recommendations to the right domain.
+# ---------------------------------------------------------------------------
+
+CAPABILITY_REGISTRY = {
+    "arch-researcher": {
+        "covers": ["coordination topology", "state machines", "planning", "tool use", "execution patterns"],
+        "does_not_cover": ["memory/RAG", "prompt engineering", "benchmarks", "cost optimization"],
+    },
+    "memory-researcher": {
+        "covers": ["RAG", "caching", "context compression", "hierarchical memory", "retrieval"],
+        "does_not_cover": ["architecture topology", "prompt templates", "evaluation metrics", "orchestration"],
+    },
+    "prompt-researcher": {
+        "covers": ["system prompts", "structured output", "few-shot", "chain-of-thought", "prompt optimization"],
+        "does_not_cover": ["memory systems", "agent topology", "infrastructure", "benchmark design"],
+    },
+    "eval-researcher": {
+        "covers": ["benchmarks", "metrics", "A/B testing", "feedback loops", "quality measurement"],
+        "does_not_cover": ["memory systems", "prompt engineering", "cost optimization", "architecture"],
+    },
+    "infra-researcher": {
+        "covers": ["orchestration", "parallel execution", "cost", "model routing", "subprocess management"],
+        "does_not_cover": ["memory design", "prompt engineering", "evaluation methodology", "architecture patterns"],
+    },
 }
 
 
