@@ -30,7 +30,14 @@ CONFIG_PATH = Path(__file__).parent / "config.toml"
 PROGRAM_PATH = Path(__file__).parent / "program.md"
 LOG_PATH = Path(__file__).parent / "research-log.tsv"
 OUTPUT_DIR = Path(__file__).parent / "output"
-MAX_CONTEXT_CHARS = 6000
+# Token budgeting: reserve 40% of context window for reasoning + output.
+# Budget expressed in chars (~4 chars/token). Applied in _build_prompt().
+MODEL_CONTEXT_BUDGET = {
+    "haiku": 30_000,   # ~7.5K tokens — keeps scouts fast
+    "sonnet": 50_000,  # ~12.5K tokens — balanced for researchers/applied
+    "opus": 80_000,    # ~20K tokens — generous for synthesis/judge
+}
+DEFAULT_CONTEXT_BUDGET = 50_000
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -122,13 +129,17 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
 
 
 def _build_prompt(agent: ResearchAgent, context: str, task: str) -> str:
-    """Build the user prompt for an agent."""
+    """Build the user prompt for an agent.
+
+    Token budget: each model tier gets a different context cap.
+    Haiku scouts get less context (speed), Opus gets more (quality).
+    """
     sections = [f"## Task\n{task}"]
 
     if context:
-        # Cap context to prevent timeouts
-        if len(context) > MAX_CONTEXT_CHARS:
-            context = context[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated]"
+        budget = MODEL_CONTEXT_BUDGET.get(agent.model, DEFAULT_CONTEXT_BUDGET)
+        if len(context) > budget:
+            context = context[:budget] + "\n\n[Context trimmed to fit token budget]"
         sections.append(f"## Context\n{context}")
 
     sections.append(
@@ -416,17 +427,235 @@ def build_applied_context(applied_outputs: list[dict]) -> str:
     return "\n".join(sections)
 
 
-def build_full_context(all_outputs: dict) -> str:
-    """Build full context from all phases for quality gate and synthesis."""
+# ---------------------------------------------------------------------------
+# Narrative casting — frame handoffs as story continuation, not data dumps.
+# Research finding: LLMs comprehend narrative context better than structured
+# state dumps, improving downstream accuracy by 3%+ (EXP-2 threshold).
+# ---------------------------------------------------------------------------
+
+
+def narrative_cast_scouts(scout_outputs: list[dict], topic: str) -> str:
+    """Cast scout findings as narrative for researchers."""
+    valid = [o for o in scout_outputs if not o.get("_error")]
+    if not valid:
+        return (f"The scout team found no results for '{topic}'. "
+                f"Analyze based on your domain knowledge.")
+
+    all_sources = []
+    summaries = []
+
+    for o in valid:
+        agent_id = o.get("_agent_id", "scout")
+        summary = o.get("summary", "")
+        if summary:
+            summaries.append(summary)
+
+        sources = o.get("sources", [])
+        if not isinstance(sources, list):
+            sources = []
+        if not sources:
+            for k in ("papers", "scout_findings", "benchmarks_and_evaluations",
+                       "implementations", "findings", "results",
+                       "key_research_directions"):
+                val = o.get(k)
+                if isinstance(val, list) and val:
+                    sources = val
+                    break
+                elif isinstance(val, dict):
+                    sources = [val]
+                    break
+
+        for s in sources:
+            if isinstance(s, dict):
+                all_sources.append({
+                    "title": s.get("title", s.get("name", "untitled")),
+                    "summary": s.get("summary", s.get("description", ""))[:150],
+                    "relevance": s.get("relevance", 0.5),
+                    "scout": agent_id,
+                })
+
+    all_sources.sort(key=lambda x: x.get("relevance", 0), reverse=True)
+
+    lines = [
+        f"The scout team investigated \"{topic}\" across {len(valid)} scouts "
+        f"and identified {len(all_sources)} relevant sources.",
+        "",
+    ]
+
+    if summaries:
+        lines.append("Scout assessments:")
+        for s in summaries:
+            lines.append(f"- {str(s)[:300]}")
+        lines.append("")
+
+    if all_sources:
+        lines.append("Most relevant sources (ranked by relevance):")
+        for s in all_sources[:10]:
+            rel = s.get("relevance", "?")
+            lines.append(
+                f"- **{s['title']}** (relevance: {rel}, via {s['scout']}): "
+                f"{s['summary']}"
+            )
+        lines.append("")
+
+    lines.append(
+        "Analyze these findings through your specific domain lens. "
+        "Extract named techniques with concrete descriptions and trade-offs."
+    )
+    return "\n".join(lines)
+
+
+def narrative_cast_research(research_outputs: list[dict], topic: str) -> str:
+    """Cast research findings as narrative for applied agents."""
+    valid = [o for o in research_outputs if not o.get("_error")]
+    if not valid:
+        return f"No researcher findings available for '{topic}'."
+
+    lines = [
+        f"{len(valid)} domain researchers analyzed \"{topic}\" and produced "
+        f"these findings:",
+        "",
+    ]
+
+    all_techniques = []
+
+    for o in valid:
+        agent_id = o.get("_agent_id", "researcher")
+        domain = agent_id.replace("-researcher", "").replace("-", " ").title()
+
+        findings = ""
+        for k in ("findings", "analysis", "research_findings", "summary"):
+            val = o.get(k)
+            if isinstance(val, str) and val:
+                findings = val[:400]
+                break
+        if not findings:
+            for k, v in o.items():
+                if (not k.startswith("_") and isinstance(v, str)
+                        and len(v) > len(findings)):
+                    findings = v[:400]
+
+        key_points = o.get("key_points", [])
+        if not isinstance(key_points, list):
+            key_points = []
+
+        techniques = o.get("techniques", [])
+        if not isinstance(techniques, list):
+            techniques = []
+
+        lines.append(f"**{domain} perspective** ({agent_id}):")
+        if findings:
+            lines.append(findings)
+        if key_points:
+            lines.append(
+                "Key takeaways: "
+                + "; ".join(str(k)[:80] for k in key_points[:3])
+            )
+        lines.append("")
+
+        for t in techniques:
+            if isinstance(t, dict):
+                all_techniques.append({
+                    "name": t.get("name", ""),
+                    "description": t.get("description", "")[:100],
+                    "from": agent_id,
+                })
+            elif isinstance(t, str):
+                all_techniques.append({
+                    "name": t, "description": "", "from": agent_id,
+                })
+
+    if all_techniques:
+        lines.append("Techniques discovered across all researchers:")
+        for t in all_techniques:
+            desc = f" — {t['description']}" if t["description"] else ""
+            lines.append(f"- **{t['name']}**{desc} (via {t['from']})")
+        lines.append("")
+
+    lines.append(
+        "Map these findings to the codebase. Produce concrete, actionable "
+        "recommendations ordered by impact/effort ratio."
+    )
+    return "\n".join(lines)
+
+
+def build_conflicts_section(all_outputs: dict) -> str:
+    """Build explicit conflicts section for synthesizer.
+
+    Research finding: synthesizer should receive an explicit "conflicts"
+    section listing disagreements between upstream agents.
+    """
+    conflicts = []
+
+    # Check for researcher confidence divergence
+    researchers = all_outputs.get("research", [])
+    valid_researchers = [o for o in researchers if not o.get("_error")]
+
+    confidences = {}
+    for o in valid_researchers:
+        agent_id = o.get("_agent_id", "?")
+        conf = o.get("confidence", 0)
+        if isinstance(conf, (int, float)) and conf > 0:
+            confidences[agent_id] = conf
+
+    if confidences:
+        high_conf = {k: v for k, v in confidences.items() if v >= 0.7}
+        low_conf = {k: v for k, v in confidences.items() if v < 0.5}
+        if high_conf and low_conf:
+            conflicts.append(
+                f"Confidence divergence: {list(high_conf.keys())} report high "
+                f"confidence while {list(low_conf.keys())} are uncertain — "
+                f"investigate why."
+            )
+
+    # Check for critic high-severity flags
+    quality = all_outputs.get("quality", [])
+    for o in quality:
+        if o.get("_agent_id") == "critic" and not o.get("_error"):
+            issues = o.get("issues", [])
+            high_issues = [i for i in issues if isinstance(i, dict)
+                          and i.get("severity") == "high"]
+            if high_issues:
+                for issue in high_issues[:3]:
+                    claim = issue.get("claim", "")[:80]
+                    problem = issue.get("problem", "")[:80]
+                    conflicts.append(f"Critic flags: \"{claim}\" — {problem}")
+
+    if not conflicts:
+        return ""
+
+    lines = ["## Conflicts and Disagreements", ""]
+    for c in conflicts:
+        lines.append(f"- {c}")
+    lines.append("")
+    lines.append(
+        "Address each conflict explicitly in the brief. Do not merge "
+        "conflicting findings without noting the disagreement."
+    )
+    return "\n".join(lines)
+
+
+def build_full_context(all_outputs: dict, topic: str = "") -> str:
+    """Build full narrative context from all phases for quality gate and synthesis.
+
+    Uses narrative format for each section and appends an explicit
+    conflicts section so the synthesizer addresses disagreements.
+    """
     sections = []
 
     if "scout" in all_outputs:
         sections.append("## Scout Findings")
-        sections.append(build_scout_context(all_outputs["scout"]))
+        if topic:
+            sections.append(narrative_cast_scouts(all_outputs["scout"], topic))
+        else:
+            sections.append(build_scout_context(all_outputs["scout"]))
 
     if "research" in all_outputs:
         sections.append("## Research Findings")
-        sections.append(build_research_context(all_outputs["research"]))
+        if topic:
+            sections.append(narrative_cast_research(all_outputs["research"], topic))
+        else:
+            sections.append(build_research_context(all_outputs["research"]))
 
     if "applied" in all_outputs:
         sections.append("## Applied Analysis")
@@ -447,6 +676,12 @@ def build_full_context(all_outputs: dict) -> str:
                             f"{issue.get('problem', '')[:80]}"
                         )
                 sections.append("")
+
+    # Explicit conflicts section (research finding: helps synthesizer
+    # address disagreements instead of silently merging conflicting data)
+    conflicts = build_conflicts_section(all_outputs)
+    if conflicts:
+        sections.append(conflicts)
 
     return "\n".join(sections)
 
@@ -627,7 +862,7 @@ async def run_swarm(
         researchers = get_agents_by_phase(agents, "research")
         print(f"\n--- Phase 2: RESEARCH ({len(researchers)} agents, parallel) ---")
 
-        scout_ctx = build_scout_context(all_outputs.get("scout", []))
+        scout_ctx = narrative_cast_scouts(all_outputs.get("scout", []), topic)
         research_task = (
             f"Analyze findings related to: {topic}\n\n"
             f"Focus on your specific domain. Be concrete and technical.\n\n"
@@ -658,7 +893,7 @@ async def run_swarm(
         applied = get_agents_by_phase(agents, "applied")
         print(f"\n--- Phase 3: APPLIED ({len(applied)} agents, parallel) ---")
 
-        research_ctx = build_research_context(all_outputs.get("research", []))
+        research_ctx = narrative_cast_research(all_outputs.get("research", []), topic)
         codebase_note = ""
         if codebase:
             codebase_note = f"\n\nCodebase to audit: {codebase}"
@@ -696,7 +931,7 @@ async def run_swarm(
 
         print(f"\n--- Phase 4: QUALITY GATE (sequential) ---")
 
-        full_ctx = build_full_context(all_outputs)
+        full_ctx = build_full_context(all_outputs, topic)
 
         # Critic first
         if critic_agent:
@@ -729,7 +964,7 @@ async def run_swarm(
 
         # Judge sees everything including critic
         if judge_agent:
-            judge_ctx = build_full_context(all_outputs)
+            judge_ctx = build_full_context(all_outputs, topic)
             judge_task = (
                 f"Judge the research quality for: {topic}\n\n"
                 f"Respond with a JSON object containing exactly these keys:\n"
@@ -793,7 +1028,7 @@ async def run_swarm(
         if synth_agent:
             print(f"\n--- Phase 5: SYNTHESIS (opus) ---")
 
-            full_ctx = build_full_context(all_outputs)
+            full_ctx = build_full_context(all_outputs, topic)
             synth_task = (
                 f"Synthesize all findings into a research brief for: {topic}\n\n"
                 f"Produce actionable recommendations with specific code changes.\n\n"
