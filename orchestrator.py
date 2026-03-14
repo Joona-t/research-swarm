@@ -1438,8 +1438,9 @@ def main():
     models = config.get("models", {})
     timeouts = config.get("timeouts", {})
 
-    # Build agents
-    agents = build_agents(models, timeouts)
+    # Build agents — roster from config controls which agents are spawned
+    roster = config.get("swarm", {}).get("roster", None)
+    agents = build_agents(models, timeouts, roster=roster)
 
     if args.dry_run:
         dry_run(args.topic, agents)

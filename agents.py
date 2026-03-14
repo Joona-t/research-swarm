@@ -725,21 +725,34 @@ CAPABILITY_REGISTRY = {
 # Agent factory
 # ---------------------------------------------------------------------------
 
-def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
-    """Build all 14 agents with configured models and timeouts.
+def build_agents(models: dict, timeouts: dict,
+                  roster: dict | None = None) -> list[ResearchAgent]:
+    """Build agents based on roster config.
 
-    Applies JSON output instruction to all prompts, with two-pass
-    variant for complex reasoning agents (judge, synthesizer).
+    Roster defines which agents to spawn per phase. If None, uses all.
+    All 14 prompts remain in ROLE_PROMPTS for future use; the roster
+    controls which agents are actually instantiated.
+
+    Ablation finding: 8 agents (2 scouts, 2 researchers, 1 applied +
+    critic/judge/synthesizer) match 14-agent quality with higher actionability.
     """
     agents = []
 
     # Agents that do complex reasoning get two-pass instruction
-    # Applied agents need reasoning space to derive actions from research
     two_pass_agents = {"judge", "synthesizer",
                        "codebase-auditor", "gap-analyst", "experiment-designer"}
 
+    # Default roster: all agents (backward compatible)
+    default_roster = {
+        "scouts": ["arxiv-scout", "impl-scout", "bench-scout"],
+        "researchers": ["arch-researcher", "memory-researcher", "prompt-researcher",
+                        "eval-researcher", "infra-researcher"],
+        "applied": ["codebase-auditor", "gap-analyst", "experiment-designer"],
+    }
+    roster = roster or default_roster
+
     # Phase 1: Scouts
-    for scout_id in ("arxiv-scout", "impl-scout", "bench-scout"):
+    for scout_id in roster.get("scouts", default_roster["scouts"]):
         agents.append(ResearchAgent(
             id=scout_id,
             role="scout",
@@ -751,8 +764,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         ))
 
     # Phase 2: Researchers
-    for r_id in ("arch-researcher", "memory-researcher", "prompt-researcher",
-                  "eval-researcher", "infra-researcher"):
+    for r_id in roster.get("researchers", default_roster["researchers"]):
         agents.append(ResearchAgent(
             id=r_id,
             role="researcher",
@@ -764,7 +776,7 @@ def build_agents(models: dict, timeouts: dict) -> list[ResearchAgent]:
         ))
 
     # Phase 3: Applied — two-pass so agents can reason before structuring output
-    for a_id in ("codebase-auditor", "gap-analyst", "experiment-designer"):
+    for a_id in roster.get("applied", default_roster["applied"]):
         agents.append(ResearchAgent(
             id=a_id,
             role="applied",

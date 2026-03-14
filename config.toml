@@ -4,6 +4,16 @@
 max_rounds = 1                # phases are sequential, not iterative
 default_model = "sonnet"
 
+# Agent roster — which agents to spawn per phase.
+# Ablation study (12 runs, 4 configs, 3 topics) showed 8 agents match
+# 14-agent quality (6.1 vs 5.9) with higher actionability (5.3 vs 4.3).
+# All prompts preserved in agents.py for future use.
+[swarm.roster]
+scouts = ["arxiv-scout", "impl-scout"]
+researchers = ["arch-researcher", "prompt-researcher"]
+applied = ["experiment-designer"]
+# critic, judge, synthesizer always included (core pipeline)
+
 [timeouts]
 scout = 180                   # bumped from 120 — web search adds latency
 researcher = 180

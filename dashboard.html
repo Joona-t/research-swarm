@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Swarm Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 24px;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            background: linear-gradient(90deg, #58a6ff, #bc8cff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { color: #8b949e; margin-bottom: 24px; font-size: 14px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .stat-card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; }
+        .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .stat-card .trend { font-size: 12px; margin-top: 4px; }
+        .trend-up { color: #3fb950; }
+        .trend-down { color: #f85149; }
+        .trend-flat { color: #8b949e; }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .chart-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .chart-card h3 { font-size: 14px; color: #8b949e; margin-bottom: 12px; }
+        canvas { max-height: 280px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 2px solid #30363d;
+            color: #8b949e;
+            font-weight: 600;
+        }
+        td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #21262d;
+        }
+        tr:hover { background: #161b22; }
+        .topic-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .status-keep { color: #3fb950; font-weight: 600; }
+        .status-discard { color: #f85149; font-weight: 600; }
+        .section-title {
+            font-size: 18px;
+            margin: 24px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #30363d;
+        }
+        .ablation-note {
+            background: #161b22;
+            border-left: 3px solid #58a6ff;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            line-height: 1.6;
+            border-radius: 0 8px 8px 0;
+        }
+        .ablation-note strong { color: #58a6ff; }
+    </style>
+</head>
+<body>
+    <h1>Research Swarm Dashboard</h1>
+    <p class="subtitle">
+        26 successful runs | Last updated: 2026-03-14 10:49
+        | Latest: ? agents
+    </p>
+
+    <div class="ablation-note">
+        <strong>Ablation Finding (Run 20-31):</strong> Agent-count ablation across 4 configs (14/10/8/7 agents)
+        and 3 topics showed <strong>8 agents match 14-agent quality</strong> (6.1 vs 5.9 avg)
+        with higher actionability (5.3 vs 4.3). Swarm restructured from 14 to 8 agents.
+        Dropped: bench-scout, memory-researcher, eval-researcher, infra-researcher, codebase-auditor, gap-analyst.
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">Avg Quality</div>
+            <div class="value">6.2</div>
+            <div class="trend trend-down">
+                Latest: 5.8
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Best Quality</div>
+            <div class="value">7.2</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Best Actionability</div>
+            <div class="value">8.0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Best Factuality</div>
+            <div class="value">6.0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Total Runs</div>
+            <div class="value">26</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Avg Wall Clock</div>
+            <div class="value">599s</div>
+        </div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3>Quality Scores Over Time</h3>
+            <canvas id="qualityChart"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Factuality & Actionability</h3>
+            <canvas id="factChart"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Overlap Ratio (%)</h3>
+            <canvas id="overlapChart"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>Wall Clock (seconds) & Agent Count</h3>
+            <canvas id="perfChart"></canvas>
+        </div>
+    </div>
+
+    <h2 class="section-title">Run History</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Topic</th>
+                <th>Agents</th>
+                <th>Quality</th>
+                <th>Action.</th>
+                <th>Fact.</th>
+                <th>Overlap</th>
+                <th>Wall</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+        <tr>
+            <td>1</td>
+            <td class="topic-cell" title="Reducing agent timeout failures and optimizing task decomposition in multi-agent LLM pipelines 2025-2026">Reducing agent timeout failures and optimizing tas</td>
+            <td>11</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>0.0</td>
+            <td>69%</td>
+            <td>584s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>2</td>
+            <td class="topic-cell" title="Reducing hallucination and improving factual accuracy in multi-agent LLM research systems 2025-2026">Reducing hallucination and improving factual accur</td>
+            <td>11</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>0.0</td>
+            <td>62%</td>
+            <td>709s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>3</td>
+            <td class="topic-cell" title="Reducing hallucination and improving factual accuracy in multi-agent LLM research systems 2025-2026">Reducing hallucination and improving factual accur</td>
+            <td>11</td>
+            <td>6.3</td>
+            <td>7.0</td>
+            <td>0.0</td>
+            <td>74%</td>
+            <td>619s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>4</td>
+            <td class="topic-cell" title="Reducing applied agent failures and improving context-to-action conversion in multi-agent research pipelines 2025-2026">Reducing applied agent failures and improving cont</td>
+            <td>11</td>
+            <td>6.5</td>
+            <td>7.0</td>
+            <td>4.0</td>
+            <td>76%</td>
+            <td>709s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>5</td>
+            <td class="topic-cell" title="Semantic similarity detection and redundancy elimination in parallel multi-agent research outputs 2025-2026">Semantic similarity detection and redundancy elimi</td>
+            <td>11</td>
+            <td>5.8</td>
+            <td>6.0</td>
+            <td>4.0</td>
+            <td>58%</td>
+            <td>671s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td class="topic-cell" title="Optimal multi-agent coordination patterns for LLM-based code generation systems 2025-2026">Optimal multi-agent coordination patterns for LLM-</td>
+            <td>11</td>
+            <td>6.8</td>
+            <td>7.0</td>
+            <td>6.0</td>
+            <td>5%</td>
+            <td>737s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>7</td>
+            <td class="topic-cell" title="Grounding multi-agent LLM systems with tool-augmented search and citation verification 2025-2026">Grounding multi-agent LLM systems with tool-augmen</td>
+            <td>11</td>
+            <td>6.0</td>
+            <td>6.0</td>
+            <td>5.0</td>
+            <td>28%</td>
+            <td>682s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td class="topic-cell" title="Automated evaluation frameworks for multi-agent LLM systems 2025-2026">Automated evaluation frameworks for multi-agent LL</td>
+            <td>11</td>
+            <td>4.5</td>
+            <td>6.0</td>
+            <td>3.0</td>
+            <td>0%</td>
+            <td>370s</td>
+            <td class="status-discard">DISCARD</td>
+        </tr>
+        <tr>
+            <td>9</td>
+            <td class="topic-cell" title="Automated evaluation frameworks for multi-agent LLM systems 2025-2026">Automated evaluation frameworks for multi-agent LL</td>
+            <td>11</td>
+            <td>7.0</td>
+            <td>8.0</td>
+            <td>5.0</td>
+            <td>53%</td>
+            <td>639s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td class="topic-cell" title="Priority-aware context compression and information routing for multi-phase agent pipelines 2025-2026">Priority-aware context compression and information</td>
+            <td>11</td>
+            <td>6.5</td>
+            <td>7.0</td>
+            <td>4.0</td>
+            <td>33%</td>
+            <td>764s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>11</td>
+            <td class="topic-cell" title="Techniques for reducing latency and improving reliability in LLM-based autonomous coding agents 2025-2026">Techniques for reducing latency and improving reli</td>
+            <td>11</td>
+            <td>6.5</td>
+            <td>7.0</td>
+            <td>5.0</td>
+            <td>71%</td>
+            <td>647s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>12</td>
+            <td class="topic-cell" title="Lightweight semantic deduplication techniques for multi-agent research outputs 2025-2026">Lightweight semantic deduplication techniques for </td>
+            <td>11</td>
+            <td>6.2</td>
+            <td>7.0</td>
+            <td>4.0</td>
+            <td>46%</td>
+            <td>626s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>13</td>
+            <td class="topic-cell" title="Improving factuality in multi-agent LLM research pipelines 2025-2026">Improving factuality in multi-agent LLM research p</td>
+            <td>11</td>
+            <td>7.2</td>
+            <td>8.0</td>
+            <td>6.0</td>
+            <td>100%</td>
+            <td>763s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>14</td>
+            <td class="topic-cell" title="Optimal number of agents in multi-agent LLM systems: scaling laws, diminishing returns, and agent count ablation studies 2024-2026">Optimal number of agents in multi-agent LLM system</td>
+            <td>11</td>
+            <td>6.2</td>
+            <td>7.0</td>
+            <td>4.0</td>
+            <td>55%</td>
+            <td>541s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>15</td>
+            <td class="topic-cell" title="Techniques for reducing hallucination in retrieval-augmented generation systems 2025-2026">Techniques for reducing hallucination in retrieval</td>
+            <td>11</td>
+            <td>5.5</td>
+            <td>3.0</td>
+            <td>5.0</td>
+            <td>0%</td>
+            <td>452s</td>
+            <td class="status-discard">DISCARD</td>
+        </tr>
+        <tr>
+            <td>16</td>
+            <td class="topic-cell" title="Efficient fine-tuning methods for large language models on consumer hardware 2025">Efficient fine-tuning methods for large language m</td>
+            <td>11</td>
+            <td>6.0</td>
+            <td>3.0</td>
+            <td>6.0</td>
+            <td>0%</td>
+            <td>528s</td>
+            <td class="status-discard">DISCARD</td>
+        </tr>
+        <tr>
+            <td>17</td>
+            <td class="topic-cell" title="Code generation evaluation benchmarks and automated testing for LLM outputs 2025-2026">Code generation evaluation benchmarks and automate</td>
+            <td>11</td>
+            <td>6.2</td>
+            <td>7.0</td>
+            <td>5.0</td>
+            <td>14%</td>
+            <td>562s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>18</td>
+            <td class="topic-cell" title="Techniques for reducing hallucination in retrieval-augmented generation systems 2025-2026">Techniques for reducing hallucination in retrieval</td>
+            <td>7</td>
+            <td>6.0</td>
+            <td>6.0</td>
+            <td>5.0</td>
+            <td>5%</td>
+            <td>601s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>19</td>
+            <td class="topic-cell" title="Efficient fine-tuning methods for large language models on consumer hardware 2025">Efficient fine-tuning methods for large language m</td>
+            <td>7</td>
+            <td>4.5</td>
+            <td>2.0</td>
+            <td>5.0</td>
+            <td>0%</td>
+            <td>480s</td>
+            <td class="status-discard">DISCARD</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td class="topic-cell" title="Code generation evaluation benchmarks and automated testing for LLM outputs 2025-2026">Code generation evaluation benchmarks and automate</td>
+            <td>7</td>
+            <td>6.5</td>
+            <td>6.0</td>
+            <td>6.0</td>
+            <td>47%</td>
+            <td>632s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>21</td>
+            <td class="topic-cell" title="Techniques for reducing hallucination in retrieval-augmented generation systems 2025-2026">Techniques for reducing hallucination in retrieval</td>
+            <td>5</td>
+            <td>6.5</td>
+            <td>6.0</td>
+            <td>6.0</td>
+            <td>7%</td>
+            <td>603s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>22</td>
+            <td class="topic-cell" title="Efficient fine-tuning methods for large language models on consumer hardware 2025">Efficient fine-tuning methods for large language m</td>
+            <td>5</td>
+            <td>5.5</td>
+            <td>4.0</td>
+            <td>5.0</td>
+            <td>0%</td>
+            <td>438s</td>
+            <td class="status-discard">DISCARD</td>
+        </tr>
+        <tr>
+            <td>23</td>
+            <td class="topic-cell" title="Code generation evaluation benchmarks and automated testing for LLM outputs 2025-2026">Code generation evaluation benchmarks and automate</td>
+            <td>5</td>
+            <td>6.2</td>
+            <td>6.0</td>
+            <td>5.0</td>
+            <td>-14%</td>
+            <td>548s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>24</td>
+            <td class="topic-cell" title="Techniques for reducing hallucination in retrieval-augmented generation systems 2025-2026">Techniques for reducing hallucination in retrieval</td>
+            <td>4</td>
+            <td>6.0</td>
+            <td>7.0</td>
+            <td>4.0</td>
+            <td>7%</td>
+            <td>467s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>25</td>
+            <td class="topic-cell" title="Efficient fine-tuning methods for large language models on consumer hardware 2025">Efficient fine-tuning methods for large language m</td>
+            <td>4</td>
+            <td>6.5</td>
+            <td>6.0</td>
+            <td>6.0</td>
+            <td>8%</td>
+            <td>620s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>26</td>
+            <td class="topic-cell" title="Code generation evaluation benchmarks and automated testing for LLM outputs 2025-2026">Code generation evaluation benchmarks and automate</td>
+            <td>4</td>
+            <td>5.8</td>
+            <td>6.0</td>
+            <td>5.0</td>
+            <td>0%</td>
+            <td>584s</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <script>
+        const labels = ["Run 1", "Run 2", "Run 3", "Run 4", "Run 5", "Run 6", "Run 7", "Run 8", "Run 9", "Run 10", "Run 11", "Run 12", "Run 13", "Run 14", "Run 15", "Run 16", "Run 17", "Run 18", "Run 19", "Run 20", "Run 21", "Run 22", "Run 23", "Run 24", "Run 25", "Run 26"];
+        const topics = ["Reducing agent timeout failures and opti", "Reducing hallucination and improving fac", "Reducing hallucination and improving fac", "Reducing applied agent failures and impr", "Semantic similarity detection and redund", "Optimal multi-agent coordination pattern", "Grounding multi-agent LLM systems with t", "Automated evaluation frameworks for mult", "Automated evaluation frameworks for mult", "Priority-aware context compression and i", "Techniques for reducing latency and impr", "Lightweight semantic deduplication techn", "Improving factuality in multi-agent LLM ", "Optimal number of agents in multi-agent ", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an"];
+
+        const chartDefaults = {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => topics[items[0].dataIndex] || labels[items[0].dataIndex]
+                    }
+                }
+            },
+            scales: {
+                x: { ticks: { color: '#484f58', font: { size: 10 } }, grid: { color: '#21262d' } },
+                y: { ticks: { color: '#484f58' }, grid: { color: '#21262d' } }
+            }
+        };
+
+        // Quality chart
+        new Chart(document.getElementById('qualityChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Avg Quality',
+                        data: [7.0, 7.0, 6.3, 6.5, 5.8, 6.8, 6.0, 4.5, 7.0, 6.5, 6.5, 6.2, 7.2, 6.2, 5.5, 6.0, 6.2, 6.0, 4.5, 6.5, 6.5, 5.5, 6.2, 6.0, 6.5, 5.8],
+                        borderColor: '#58a6ff',
+                        backgroundColor: 'rgba(88,166,255,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                    },
+                    {
+                        label: '3-Run Average',
+                        data: [7.0, 7.0, 6.77, 6.6, 6.2, 6.37, 6.2, 5.77, 5.83, 6.0, 6.67, 6.4, 6.63, 6.53, 6.3, 5.9, 5.9, 6.07, 5.57, 5.67, 5.83, 6.17, 6.07, 5.9, 6.23, 6.1],
+                        borderColor: '#bc8cff',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Coverage',
+                        data: [8.0, 8.0, 7.0, 8.0, 7.0, 7.0, 7.0, 4.0, 8.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 6.0, 7.0, 7.0, 6.0, 7.0, 6.0, 7.0, 6.0],
+                        borderColor: '#3fb950',
+                        borderWidth: 1,
+                        pointRadius: 2,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Accuracy',
+                        data: [6.0, 6.0, 5.0, 7.0, 6.0, 7.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0],
+                        borderColor: '#d29922',
+                        borderWidth: 1,
+                        pointRadius: 2,
+                        tension: 0.3,
+                    }
+                ]
+            },
+            options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 10 } } }
+        });
+
+        // Factuality & Actionability
+        new Chart(document.getElementById('factChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Actionability',
+                        data: [7.0, 7.0, 7.0, 7.0, 6.0, 7.0, 6.0, 6.0, 8.0, 7.0, 7.0, 7.0, 8.0, 7.0, 3.0, 3.0, 7.0, 6.0, 2.0, 6.0, 6.0, 4.0, 6.0, 7.0, 6.0, 6.0],
+                        borderColor: '#3fb950',
+                        backgroundColor: 'rgba(63,185,80,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Factuality',
+                        data: [0, 0, 0, 4.0, 4.0, 6.0, 5.0, 3.0, 5.0, 4.0, 5.0, 4.0, 6.0, 4.0, 5.0, 6.0, 5.0, 5.0, 5.0, 6.0, 6.0, 5.0, 5.0, 4.0, 6.0, 5.0],
+                        borderColor: '#f85149',
+                        backgroundColor: 'rgba(248,81,73,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Action. 3-Run Avg',
+                        data: [7.0, 7.0, 7.0, 7.0, 6.67, 6.67, 6.33, 6.33, 6.67, 7.0, 7.33, 7.0, 7.33, 7.33, 6.0, 4.33, 4.33, 5.33, 5.0, 4.67, 4.67, 5.33, 5.33, 5.67, 6.33, 6.33],
+                        borderColor: '#3fb950',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        tension: 0.3,
+                    },
+                    {
+                        label: 'Fact. 3-Run Avg',
+                        data: [0.0, 0.0, 0.0, 1.33, 2.67, 4.67, 5.0, 4.67, 4.33, 4.0, 4.67, 4.33, 5.0, 4.67, 5.0, 5.0, 5.33, 5.33, 5.0, 5.33, 5.67, 5.67, 5.33, 4.67, 5.0, 5.0],
+                        borderColor: '#f85149',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        tension: 0.3,
+                    }
+                ]
+            },
+            options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 10 } } }
+        });
+
+        // Overlap chart
+        new Chart(document.getElementById('overlapChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Overlap %',
+                    data: [69.2, 62.5, 73.7, 75.6, 58.3, 5.4, 27.8, 0.0, 52.6, 33.3, 71.4, 45.7, 100.0, 54.8, 0.0, 0.0, 13.9, 5.0, 0.0, 47.4, 6.7, 0.0, -14.3, 6.7, 7.7, 0.0],
+                    backgroundColor: (ctx) => {
+                        const v = ctx.raw;
+                        if (v > 60) return 'rgba(248,81,73,0.6)';
+                        if (v > 40) return 'rgba(210,153,34,0.6)';
+                        return 'rgba(63,185,80,0.6)';
+                    },
+                    borderRadius: 4,
+                }]
+            },
+            options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100 } } }
+        });
+
+        // Performance chart (wall clock + agent count)
+        new Chart(document.getElementById('perfChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Wall Clock (s)',
+                        data: [584.0, 709.0, 619.0, 709.0, 671.0, 737.0, 682.0, 370.0, 639.0, 764.0, 647.0, 626.0, 763.0, 541.0, 452.0, 528.0, 562.0, 601.0, 480.0, 632.0, 603.0, 438.0, 548.0, 467.0, 620.0, 584.0],
+                        borderColor: '#d29922',
+                        backgroundColor: 'rgba(210,153,34,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        yAxisID: 'y',
+                    },
+                    {
+                        label: 'Agent Count',
+                        data: [11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 7, 7, 7, 5, 5, 5, 4, 4, 4],
+                        borderColor: '#bc8cff',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        tension: 0,
+                        yAxisID: 'y1',
+                    },
+                    {
+                        label: 'Applied Success %',
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        borderColor: '#58a6ff',
+                        borderWidth: 1,
+                        pointRadius: 2,
+                        tension: 0.3,
+                        yAxisID: 'y1',
+                    }
+                ]
+            },
+            options: {
+                ...chartDefaults,
+                scales: {
+                    x: chartDefaults.scales.x,
+                    y: { ...chartDefaults.scales.y, position: 'left', title: { display: true, text: 'Seconds', color: '#8b949e' } },
+                    y1: { ...chartDefaults.scales.y, position: 'right', min: 0, max: 20, title: { display: true, text: 'Count / %', color: '#8b949e' }, grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
