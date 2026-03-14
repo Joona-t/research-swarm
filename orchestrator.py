@@ -10,6 +10,7 @@ Usage:
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
@@ -42,6 +43,17 @@ MODEL_CONTEXT_BUDGET = {
     "opus": 80_000,    # ~20K tokens — generous for synthesis/judge
 }
 DEFAULT_CONTEXT_BUDGET = 50_000
+
+# MCP config for scout web search — spawns search_server.py as stdio child process.
+SEARCH_MCP_CONFIG = json.dumps({
+    "mcpServers": {
+        "research-search": {
+            "type": "stdio",
+            "command": "python3",
+            "args": [os.path.join(os.path.dirname(__file__), "search_server.py")],
+        }
+    }
+})
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -146,6 +158,11 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
             "--model", agent.model,
             "--dangerously-skip-permissions",
         ]
+        # Scouts get web search tools via MCP server.
+        # 10 turns: search (2-3) + fetch (1-2) + synthesize (1) with margin.
+        if agent.phase == "scout":
+            cmd.extend(["--mcp-config", SEARCH_MCP_CONFIG])
+            cmd.extend(["--max-turns", "10"])
         # Applied agents get max-turns=1 to prevent filesystem exploration
         # (which causes timeouts). Other agents need unrestricted turns.
         if agent.phase == "applied":
@@ -160,10 +177,13 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
             elapsed = time.monotonic() - start
 
             if result.returncode != 0:
-                stderr = (result.stderr or "")[:200]
+                stderr = (result.stderr or "")[:300]
+                stdout_preview = (result.stdout or "")[:300]
                 print(f"  {label} ERROR: exit {result.returncode}")
                 if stderr:
-                    print(f"    {stderr}")
+                    print(f"    stderr: {stderr}")
+                if stdout_preview:
+                    print(f"    stdout: {stdout_preview}")
                 return _tag(_error_output(agent, f"Exit code {result.returncode}"))
 
             output = _parse_output(agent, result.stdout)
@@ -258,8 +278,20 @@ def _parse_output(agent: ResearchAgent, stdout: str) -> dict:
                 stdout["_role"] = agent.role
                 stdout["_phase"] = agent.phase
                 return stdout
+            # result might be None (model exhausted turns with no text)
+            if stdout is None:
+                return _error_output(agent, "No result (model may have exhausted turns on tool calls)")
             # result is a string — continue parsing below
             stdout = str(stdout).strip()
+        elif isinstance(envelope, dict) and "type" in envelope and "num_turns" in envelope:
+            # CLI envelope without result — model exhausted turns on tool calls
+            return {
+                "_agent_id": agent.id,
+                "_role": agent.role,
+                "_phase": agent.phase,
+                "findings": f"Agent exhausted {envelope.get('num_turns', '?')} turns (stop_reason: {envelope.get('stop_reason', '?')})",
+                "_raw": True,
+            }
     except (json.JSONDecodeError, TypeError):
         pass
 
