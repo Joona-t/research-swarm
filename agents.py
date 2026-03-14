@@ -588,6 +588,8 @@ Produce:
 - Priority ranking: high-impact, low-effort improvements first
 - Risk assessment: what could go wrong with each change
 
+Weight your gap analysis by researcher confidence. HIGH-confidence gaps are more actionable than LOW-confidence ones. Flag recommendations based primarily on LOW-confidence findings.
+
 Use a clear impact/effort matrix. Be honest about diminishing returns.""",
 
     "experiment-designer": """You are an Experiment Designer in a 14-agent AI research swarm.
@@ -609,6 +611,8 @@ Produce:
 - For each: what to change, how to measure, what "success" looks like
 - Expected time to implement each experiment
 - Dependencies between experiments (what to try first)
+
+Design experiments around HIGH-confidence findings first. LOW-confidence findings should only be tested if the experiment cost is small.
 
 Follow Karpathy's autoresearch discipline: one change at a time, measure, keep or discard.""",
 
@@ -664,6 +668,8 @@ factuality cannot score above 5.
 
 The actionability score is the primary metric. Factuality is the secondary metric — a run with
 high actionability but low factuality (< 4) should be flagged with a note about verification risk.
+
+Note: Research findings include confidence annotations [HIGH/MED/LOW]. The consensus logic weights your vote by researcher confidence — low-confidence research needs higher actionability to pass. If most researchers report LOW confidence, scrutinize accuracy and factuality more heavily.
 
 Vote KEEP if actionability >= 6. Vote DISCARD if below. Be decisive.""",
 

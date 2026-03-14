@@ -490,7 +490,11 @@ def build_research_context(researcher_outputs: list[dict]) -> str:
         if not isinstance(techniques, list):
             techniques = []
 
-        sections.append(f"### {agent_id}")
+        confidence = o.get("confidence", 0.5)
+        if not isinstance(confidence, (int, float)):
+            confidence = 0.5
+        conf_label = "HIGH" if confidence >= 0.8 else "MED" if confidence >= 0.5 else "LOW"
+        sections.append(f"### {agent_id} [Confidence: {confidence:.2f} {conf_label}]")
         if findings:
             sections.append(findings)
         if key_points:
@@ -1222,7 +1226,8 @@ async def run_swarm(
                 sum(confidences) / len(confidences) if confidences else 0.7
             )
 
-            judge_eval = evaluate_judge(judge_output, min_act, mean_confidence)
+            critic_verdict = critic_eval.get("verdict", "concerns") if critic_agent else "concerns"
+            judge_eval = evaluate_judge(judge_output, min_act, mean_confidence, critic_verdict)
             print(f"  Judge: actionability={judge_eval['actionability']}/10, "
                   f"vote={judge_eval['vote']} [{elapsed:.1f}s]")
 

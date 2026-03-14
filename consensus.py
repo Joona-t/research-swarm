@@ -47,7 +47,8 @@ def evaluate_critic(critic_output: dict) -> dict:
 
 
 def evaluate_judge(judge_output: dict, min_actionability: int = 6,
-                   researcher_confidence: float = 0.7) -> dict:
+                   researcher_confidence: float = 0.7,
+                   critic_verdict: str = "concerns") -> dict:
     """Parse judge scores and make the keep/discard decision.
 
     Confidence-weighted consensus: if mean researcher confidence is low,
@@ -71,12 +72,14 @@ def evaluate_judge(judge_output: dict, min_actionability: int = 6,
     if researcher_confidence < 0.6:
         effective_threshold = min_actionability + 1
 
-    # Override vote if actionability is below threshold
+    # Override vote only to discard — never override an explicit discard
     if actionability < effective_threshold:
         vote = "discard"
-    elif actionability >= effective_threshold and vote == "discard":
-        # Judge voted discard but score says keep — trust the score
-        vote = "keep"
+
+    # Critic "fail" is a strong discard signal
+    if critic_verdict == "fail" and vote == "keep":
+        vote = "discard"
+        notes += " [Overridden: critic verdict was FAIL]"
 
     # Include factuality in average (4 dimensions now)
     dimensions = [coverage, accuracy, actionability]
@@ -94,6 +97,7 @@ def evaluate_judge(judge_output: dict, min_actionability: int = 6,
         "avg_score": avg,
         "researcher_confidence": round(researcher_confidence, 2),
         "effective_threshold": effective_threshold,
+        "critic_verdict": critic_verdict,
     }
 
 

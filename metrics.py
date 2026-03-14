@@ -71,6 +71,8 @@ class RunMetrics:
     avg_quality: float = 0.0
     vote: str = ""
     researcher_confidence: float = 0.0
+    effective_threshold: int = 6
+    critic_verdict: str = ""
     critic_issues_total: int = 0
     critic_issues_high: int = 0
 
@@ -173,6 +175,8 @@ class MetricsCollector:
         self.run.avg_quality = judge_eval.get("avg_score", 0)
         self.run.vote = judge_eval.get("vote", "")
         self.run.researcher_confidence = judge_eval.get("researcher_confidence", 0)
+        self.run.effective_threshold = judge_eval.get("effective_threshold", 6)
+        self.run.critic_verdict = judge_eval.get("critic_verdict", "")
         self.run.critic_issues_total = critic_eval.get("total_issues", 0)
         self.run.critic_issues_high = critic_eval.get("high_severity", 0)
 
