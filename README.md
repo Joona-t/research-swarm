@@ -1,197 +1,292 @@
 # Research Swarm
 
-An 8-agent AI research pipeline that runs from your terminal. Give it a topic, and it sends out scouts with live web search, researchers, an applied analyst, a critic, a judge, and a synthesizer — then produces an actionable research brief or throws it away if it's not good enough.
+**A multi-agent research pipeline for investigating agentic system design through automated literature review, adversarial evaluation, and ablation testing.**
 
-## Why 8 Agents, Not 14?
+## Abstract
 
-This swarm started with 14 agents. We ran a [12-run ablation experiment](output/ablation_results.json) across 4 configurations (14, 10, 8, 7 agents) and 3 topics to find the optimal count. The data:
+Research Swarm is an 8-agent pipeline that automates AI systems research from a single terminal command. Given a topic, it deploys scouts with live web search, domain researchers, an applied analyst, an adversarial critic, a judge, and a synthesizer — producing an actionable research brief or discarding the output if quality thresholds are not met. The system has been iteratively developed over 40 instrumented runs, with each architectural change driven by measured deficiencies in prior runs. The central finding so far: 8 well-scoped agents match or exceed the output quality of 14 agents (avg quality 6.5 vs 6.0) while producing higher actionability scores (6.2 vs 6.1), primarily by eliminating redundant researcher overlap.
 
-| Config | Agents | Avg Quality | Avg Actionability | Avg Factuality |
-|--------|--------|-------------|-------------------|----------------|
-| full | 14 | 5.9 | 4.3 | 5.3 |
-| lean | 10 | 5.7 | 4.7 | 5.3 |
-| **minimal** | **8** | **6.1** | **5.3** | **5.3** |
-| skeleton | 7 | 6.1 | 6.3 | 5.0 |
+## Research Motivation
 
-**8 agents match or exceed 14-agent quality** with higher actionability. The literature backs this up — homogeneous agent scaling hits diminishing returns at 3-5 agents. Our 5 researchers had massive domain overlap; 2 well-scoped researchers cover the same ground with less redundancy noise.
+Multi-agent LLM systems face a practical design tension: more agents can cover more ground, but overlapping scope between agents degrades output quality through redundancy, contradictory recommendations, and "integrative compromise" — where synthesis agents average out distinct findings into generic advice. This project investigates that tension empirically by building a working research pipeline and measuring the effects of architectural changes across runs.
 
-The roster is config-driven. All 14 prompts are preserved — flip back to 14 by removing `[swarm.roster]` from `config.toml`.
+The broader question: **can a solo developer build a disciplined, self-improving multi-agent system that produces research output of measurable and improving quality?**
 
-## Why This Exists
+## Research Questions
 
-Building AI agents is hard. The field moves fast — new papers, frameworks, and patterns every week. We wanted a tool that could:
+- **RQ1:** Does reducing overlapping agent scope improve output quality and actionability? *(Tested: yes — see [Ablations](docs/ABLATIONS.md))*
+- **RQ2:** Does adversarial critique (critic + judge gate) improve factual grounding? *(Tested: factuality improved from 4.0 to 5.3 after adding critic; see run data)*
+- **RQ3:** What is the quality/cost tradeoff between different agent counts? *(Tested via 12-run ablation across 4 configurations)*
+- **RQ4:** Does cross-run memory (G-Memory) improve research quality over time? *(Partially tested: 448 techniques accumulated across 40 runs, but causal effect on quality not yet isolated)*
+- **RQ5:** Can semantic deduplication reduce technique overlap without losing coverage? *(Tested: overlap reduced from 76% to 38% with dedup threshold 0.39)*
 
-1. **Research a topic deeply** across multiple angles simultaneously
-2. **Ground findings in real sources** via live web search (DuckDuckGo MCP)
-3. **Challenge its own findings** with a dedicated critic before accepting them
-4. **Produce actionable output** — specific techniques, code changes, and experiments with keep/discard criteria
-5. **Learn from past runs** — each successful run stores techniques and insights that inform future research
+## Current Hypotheses
 
-## The Pipeline
+1. **Scope boundaries matter more than agent count.** Explicit OUT_OF_SCOPE declarations in agent prompts reduce redundancy more effectively than removing agents entirely. *(Supported by ablation data — 8 well-scoped agents outperform 14 without scope boundaries.)*
+2. **Adversarial evaluation improves grounding.** A dedicated critic that challenges findings before a judge scores them produces more factually grounded output than self-assessment. *(Partially supported — factuality rose from 4.0 to 5.3, but sample size is small and evaluator is an LLM.)*
+3. **Sequential phasing outperforms parallel blast for research tasks.** Scout → Research → Applied → Quality → Synthesis respects real information dependencies that parallel execution ignores. *(Design bet, not yet tested against parallel alternative in this codebase.)*
+4. **Narrative context injection outperforms structured data passing.** Passing scout findings as natural language narratives to researchers produces better analysis than raw JSON. *(Observed qualitatively; not yet measured rigorously.)*
 
+## System Overview
+
+```mermaid
+flowchart LR
+    subgraph Scout["Phase 1: Scout (Haiku, Parallel)"]
+        S1[arxiv-scout]
+        S2[impl-scout]
+    end
+    subgraph Research["Phase 2: Research (Sonnet, Parallel)"]
+        R1[arch-researcher]
+        R2[prompt-researcher]
+    end
+    subgraph Applied["Phase 3: Applied (Sonnet)"]
+        A1[experiment-designer]
+    end
+    subgraph Gate["Phase 4: Quality Gate (Sonnet + Opus)"]
+        C[critic]
+        J[judge]
+    end
+    subgraph Synth["Phase 5: Synthesis (Opus)"]
+        SY[synthesizer]
+    end
+
+    Scout --> Research --> Applied --> C --> J --> SY
+    SY --> Output[(research brief)]
+    J -->|DISCARD| Stop([discarded])
 ```
-SCOUT → RESEARCH → APPLIED → QUALITY GATE → SYNTHESIS
-(search)  (analyze)  (apply)   (challenge)    (produce)
-```
 
-### The 8 Agents
+### Architecture
 
-| Phase | Agents | Model | Execution |
-|-------|--------|-------|-----------|
-| **Scout** (2) | arxiv-scout, impl-scout | Haiku | Parallel |
-| **Research** (2) | arch-researcher, prompt-researcher | Sonnet | Parallel |
-| **Applied** (1) | experiment-designer | Sonnet | Single |
-| **Quality Gate** (2) | critic, judge | Sonnet, Opus | Sequential |
-| **Synthesis** (1) | synthesizer | Opus | Single |
+**Pipeline:** 5 sequential phases with parallel execution within phases where dependencies allow.
 
-**Model tiering:** Haiku for fast scouting, Sonnet for focused analysis, Opus for high-stakes judgment and synthesis.
+| Phase | Agents | Model | Role |
+|-------|--------|-------|------|
+| Scout (2) | arxiv-scout, impl-scout | Haiku | Web search via DuckDuckGo MCP server; find papers, repos, benchmarks |
+| Research (2) | arch-researcher, prompt-researcher | Sonnet | Analyze findings through domain-specific lenses |
+| Applied (1) | experiment-designer | Sonnet | Map research to concrete code changes and experiments |
+| Quality Gate (2) | critic, judge | Sonnet, Opus | Adversarial verification; score and keep/discard |
+| Synthesis (1) | synthesizer | Opus | Produce final research brief from kept findings |
 
-### Live Web Search
+**Model tiering rationale:** Haiku for fast, broad scouting (low reasoning demand). Sonnet for focused analysis (good reasoning, moderate cost). Opus for high-stakes judgment and final synthesis (highest reasoning quality).
 
-Scouts have their own MCP web search server (`search_server.py`) powered by DuckDuckGo — free, no API key, fully self-hosted. Two tools:
+**Agent invocation:** Each agent runs as a stateless `claude -p` subprocess. The orchestrator owns all state, passing context between phases as narrative text. No framework dependencies (no LangGraph, no CrewAI).
 
-- **web_search** — searches DuckDuckGo with operators (`site:arxiv.org`, `"exact phrase"`)
-- **fetch_page** — reads actual page content (paper abstracts, READMEs, docs)
+### Key Mechanisms
 
-This is how the swarm grounds citations in real sources instead of hallucinating paper titles.
+| Mechanism | Status | Description |
+|-----------|--------|-------------|
+| Semantic deduplication | **Implemented** | Jaccard + bigram similarity with complete-linkage clustering (threshold 0.39) |
+| Priority-aware compression | **Implemented** | Heuristic section scoring; high-priority sections preserved, low-priority compressed |
+| Evidence labeling | **Implemented** | Every technique tagged: peer_reviewed, preprint, repo, unverified |
+| Adversarial quality gate | **Implemented** | Critic challenges findings; judge scores coverage/accuracy/actionability/factuality |
+| G-Memory | **Implemented** | SQLite with exponential decay; techniques and insights persist across runs |
+| Web search (MCP) | **Implemented** | DuckDuckGo via custom MCP server; scouts ground citations in real sources |
+| Capability registry | **Implemented** | Each agent declares coverage and non-coverage to prevent overlap |
+| Narrative context injection | **Implemented** | Scout findings passed as prose, not raw JSON |
+| Pre-dispatch sufficiency gating | **Proposed** | Block redundant agent spawns before token expenditure |
+| Embedding-based dedup | **Proposed** | Replace Jaccard with vector similarity for cross-lingual matching |
 
-## Usage
+## Evaluation
 
-### Prerequisites
+### Metrics
 
+All metrics are scored by the judge agent (Claude Opus) on a 0-10 scale per run:
+
+| Metric | Definition | Primary? |
+|--------|-----------|----------|
+| **Actionability** | Can these findings be implemented within a week by a solo developer? Requires specific code changes, not vague advice. | Yes |
+| **Coverage** | Does the research cover the topic's major dimensions? | No |
+| **Accuracy** | Are the technical claims correct? | No |
+| **Factuality** | Are findings grounded in real, verifiable sources? | No |
+
+**Primary metric:** Actionability (>= 6 to keep). This reflects the system's purpose — producing implementable research, not literature surveys.
+
+**Quality gate logic:** If actionability < 6, the run is discarded. If critic verdict is "fail," the run is discarded regardless of judge scores. All discarded runs are logged with reasons.
+
+**What these metrics do NOT capture:** Inter-rater reliability (single LLM evaluator), real-world implementation success (no follow-up measurement), novelty of findings, cost-effectiveness relative to manual research.
+
+### Aggregate Results (40 runs)
+
+| Metric | Kept Runs (n=30) | All Runs (n=40) |
+|--------|-----------------|-----------------|
+| Avg Quality | 6.5 | — |
+| Avg Actionability | 6.7 | — |
+| Avg Factuality | 5.3 | — |
+| Avg Coverage | 7.1 | — |
+| Avg Accuracy | 6.7 | — |
+| Keep Rate | 75% (30/40) | — |
+| Avg Overlap (post-dedup) | 0.37 | — |
+| Avg Wall Clock | 620s | — |
+| Techniques Accumulated | 448 | — |
+| Insights Accumulated | 31 | — |
+
+### Ablation: Agent Count (12 runs, 3 topics, 4 configurations)
+
+Tested across three topics: RAG hallucination reduction, fine-tuning methods, code generation evaluation.
+
+| Config | Agent Invocations | Avg Quality | Avg Actionability | Avg Factuality | Verdict |
+|--------|-------------------|-------------|-------------------|----------------|---------|
+| full (14 agents) | 11 | 6.0 | 6.1 | 4.4 | baseline |
+| lean (10 agents) | 7 | 5.7 | 4.7 | 5.3 | quality drop |
+| **minimal (8 agents)** | **5** | **6.5** | **6.2** | **5.9** | **adopted** |
+| skeleton (7 agents) | 4 | 6.1 | 6.3 | 5.0 | factuality risk |
+
+**Interpretation:** The 8-agent configuration outperformed the 14-agent baseline on all metrics. The 5 removed researchers had overlapping domain coverage; consolidating them into 2 well-scoped researchers eliminated redundancy without losing coverage. The 7-agent skeleton showed a factuality dip, suggesting the quality gate (critic + judge) is load-bearing.
+
+**Caveats:** 3 topics is a small sample. All scoring is by a single LLM evaluator. The "quality" metric is a composite that may mask dimension-specific regressions.
+
+### Discard Analysis (6 runs)
+
+| Run | Topic | Actionability | Reason |
+|-----|-------|---------------|--------|
+| 20260314_044439 | Automated evaluation frameworks | 6.0 | Quality 4.5; coverage/accuracy too low |
+| 20260314_065056 | Improving factuality | 0.0 | Catastrophic failure — agents returned empty output |
+| 20260314_084357 | RAG hallucination reduction | 3.0 | Accurate but not actionable for target codebase |
+| 20260314_085129 | Fine-tuning methods | 3.0 | Topic mismatched with browser extension codebase |
+| 20260314_091940 | Fine-tuning methods (10-agent) | 2.0 | Same mismatch, worse with fewer agents |
+| 20260314_094815 | Fine-tuning methods (8-agent) | 4.0 | Marginal improvement but still below threshold |
+
+**Pattern:** Topic-codebase mismatch is the primary discard cause (3/6). The system correctly identifies and rejects research that cannot be applied to its target codebase. Catastrophic failures (empty output) occurred once and were not reproducible.
+
+## Failure Modes and Limitations
+
+1. **Single LLM evaluator.** All quality scores come from one Claude model. No inter-rater reliability, no human evaluation baseline. Scores may reflect model preferences rather than objective quality.
+2. **Small sample sizes.** 40 total runs, 12 ablation runs. Insufficient for statistical significance testing. All findings should be treated as observations, not conclusions.
+3. **Factuality plateau.** Factuality scores plateaued around 5.3 despite multiple interventions (evidence labeling, critic, web search). The root cause is unclear — possibly a ceiling on what DuckDuckGo searches can verify.
+4. **Subprocess timeouts.** Applied agents occasionally timeout at 200s when processing large context. Partial recovery exists but loses information.
+5. **Cost tracking gap.** API costs are not tracked per run (estimated_cost_units = 0 in all metrics entries). Cost analysis requires external billing data.
+6. **No human validation.** "Actionability" is scored by an LLM, not verified by implementing the recommendations.
+7. **Memory compounding unvalidated.** G-Memory accumulates 448 techniques across runs, but the causal effect on output quality has not been isolated (no runs with empty vs. populated memory compared).
+8. **Dedup threshold sensitivity.** Threshold 0.50 caused overlap=1.0 on 1/3 topics (all techniques merged into one cluster). Reverted to 0.39. The optimal threshold likely varies by topic.
+
+## Reproducibility
+
+### Requirements
 - Python 3.11+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- `pip install ddgs mcp httpx` (for scout web search)
+- `pip install ddgs mcp httpx`
 
 ### Run a research topic
-
 ```bash
 python3 orchestrator.py "multi-agent consensus convergence 2025"
 ```
 
-### Dry run (preview the agent plan)
-
+### Dry run (preview agent plan)
 ```bash
 python3 orchestrator.py "your topic" --dry-run
 ```
 
-### Point at a specific codebase for the applied phase
-
+### Point at a specific codebase
 ```bash
 python3 orchestrator.py "your topic" --codebase ~/path/to/your/project
 ```
 
-### Run specific phases only
-
+### Run specific phases
 ```bash
 python3 orchestrator.py "your topic" --phases scout,research
 ```
 
-### Skip the quality gate
-
+### Skip quality gate
 ```bash
 python3 orchestrator.py "your topic" --no-gate
 ```
 
-### View the dashboard
-
+### Run ablation experiment
 ```bash
-python3 dashboard.py
+python3 ablation.py                      # all 4 configs x 3 topics
+python3 ablation.py --configs full,lean   # specific configs only
 ```
 
-Generates `dashboard.html` with Chart.js graphs tracking quality, actionability, factuality, overlap, and wall clock across all runs.
-
-### Run an ablation experiment
-
+### View metrics dashboard
 ```bash
-python3 ablation.py                    # all 4 configs x 3 topics
-python3 ablation.py --configs full,lean  # specific configs only
+python3 dashboard.py    # generates dashboard.html
 ```
 
-## How It Works
+### Known Sources of Nondeterminism
+- LLM output varies between runs (temperature > 0)
+- Web search results change over time (DuckDuckGo index)
+- G-Memory state differs between runs (cumulative)
+- Subprocess timing affects timeout/success boundaries
 
-1. **Scouts** search the web and find sources — real papers, implementations, benchmarks with real URLs
-2. **Researchers** analyze those findings through domain lenses (architecture, prompting)
-3. **Applied agent** maps the research to your codebase — what to change, where, and why
-4. **Critic** challenges the findings — flags hype, echo-chambered citations, missing context
-5. **Judge** (Opus) scores on coverage, accuracy, actionability, and factuality. Votes KEEP or DISCARD
-6. **Synthesizer** (Opus) produces the final research brief if the judge kept it
+### Environment Assumptions
+- macOS or Linux (subprocess invocation via `claude -p`)
+- Internet access required for scout phase (web search)
+- No GPU required
+- Runs take 7-13 minutes per topic depending on timeout behavior
 
-## Key Features
-
-- **Semantic deduplication** — Jaccard + bigram similarity with complete-linkage clustering catches "Three-Tier Memory" / "Hierarchical Memory Architecture" / "Temporal Memory Tiers" as the same idea
-- **Priority-aware context compression** — high-confidence, well-evidenced sections preserved in full; low-priority sections compressed or dropped
-- **Evidence labeling** — every technique tagged with evidence type (peer_reviewed, preprint, repo, unverified)
-- **Adversarial quality gate** — critic + judge catch hallucinations, echo-chamber amplification, and inflated grounding claims
-- **G-Memory** — SQLite-based memory with exponential decay. Techniques and insights compound across runs
-
-## Output
-
-Successful runs produce:
-- A markdown research brief in `output/` with techniques, code changes, and experiments
-- A log entry in `research-log.tsv`
-- Metrics appended to `metrics.jsonl`
-- Techniques and insights stored in `memory.db` for future runs
-
-## Configuration
-
-Edit `config.toml` to change models, timeouts, agent roster, and quality thresholds:
-
-```toml
-[swarm.roster]
-scouts = ["arxiv-scout", "impl-scout"]
-researchers = ["arch-researcher", "prompt-researcher"]
-applied = ["experiment-designer"]
-
-[models]
-scout = "haiku"
-researcher = "sonnet"
-judge = "opus"
-synthesizer = "opus"
-
-[quality]
-min_actionability = 6
-```
-
-Remove `[swarm.roster]` to use all 14 agents.
-
-## Project Structure
+## Repo Structure
 
 ```
 research-swarm/
-├── orchestrator.py      # Main entrypoint — 5-phase execution, CLI
-├── agents.py            # 14 agent definitions, role prompts, output schemas
-├── search_server.py     # MCP web search server (DuckDuckGo + page fetch)
-├── consensus.py         # Quality gate — critic eval, judge eval, keep/discard
-├── context.py           # Priority-aware context compression
-├── dedup.py             # Semantic technique deduplication
-├── memory.py            # SQLite G-Memory — techniques, insights, runs
-├── metrics.py           # Per-run metrics collection, regression detection
-├── dashboard.py         # HTML dashboard generator (Chart.js)
-├── ablation.py          # Agent-count ablation experiment runner
-├── config.toml          # Model assignments, timeouts, roster, thresholds
-├── program.md           # Research program (steers the swarm)
-├── research-log.tsv     # Persistent log of all runs
-├── metrics.jsonl        # Machine-readable metrics for dashboard
-├── output/              # Generated research briefs (gitignored)
-└── memory.db            # SQLite G-Memory storage (gitignored)
+├── orchestrator.py       # Main entrypoint — 5-phase pipeline, CLI
+├── agents.py             # 14 agent definitions, role prompts, output schemas
+├── search_server.py      # MCP web search server (DuckDuckGo + page fetch)
+├── consensus.py          # Quality gate — critic eval, judge eval, keep/discard
+├── context.py            # Priority-aware context compression
+├── dedup.py              # Semantic technique deduplication (Jaccard + bigram)
+├── memory.py             # SQLite G-Memory — techniques, insights, decay
+├── metrics.py            # Per-run instrumentation, regression detection
+├── dashboard.py          # HTML dashboard generator (Chart.js)
+├── ablation.py           # Agent-count ablation experiment runner
+├── config.toml           # Model assignments, timeouts, roster, thresholds
+├── program.md            # Research program definition (steers topic selection)
+├── research.md           # Design decisions and source analysis
+├── research-log.tsv      # Persistent log of all 40 runs
+├── metrics.jsonl         # Machine-readable per-run metrics (40 entries)
+├── dashboard.html        # Generated metrics dashboard
+├── docs/                 # Research documentation
+│   ├── RESEARCH_QUESTIONS.md
+│   ├── METHODOLOGY.md
+│   ├── EVALUATION.md
+│   ├── ABLATIONS.md
+│   ├── LIMITATIONS.md
+│   ├── ROADMAP.md
+│   ├── ARTIFACTS.md
+│   ├── RESEARCH_LOG.md
+│   └── CLAIMS_AND_EVIDENCE.md
+├── results/
+│   └── RESULTS.md        # Structured run results table
+├── output/               # Generated research briefs (gitignored)
+└── memory.db             # SQLite G-Memory storage (gitignored)
 ```
 
 ## Evolution
 
-This swarm has been recursively self-improved over 31 instrumented runs:
+This system has been iteratively developed over 40 instrumented runs and 16 commits. Each change was motivated by measured deficiencies:
 
-1. **JSON compliance** — PARSE schemas, retry logic, two-pass reasoning
-2. **Context injection** — narrative casting, dynamic token budgets
-3. **Role differentiation** — OUT_OF_SCOPE blocks, capability registry
-4. **Timeout handling** — failure policy, partial recovery
-5. **Hallucination gate** — adversarial critic, confidence-weighted consensus
-6. **Applied agent quality** — confidence propagation, CoT scaffolding
-7. **Semantic dedup** — Jaccard+bigram similarity, agglomerative clustering (overlap 76% → 38%)
-8. **Grounding** — evidence labeling, citation verification protocol (factuality 4.0 → 5.0)
-9. **Context compression** — priority-aware section scoring (applied success 2/3 → 3/3)
-10. **Web search** — custom MCP server with DuckDuckGo (factuality 4.0 → 6.0)
-11. **Agent-count ablation** — data-driven restructure from 14 to 8 agents (no quality loss)
+| Change | Commit | Motivation | Measured Effect |
+|--------|--------|------------|-----------------|
+| Initial 14-agent system | f00dbb9 | Broad coverage design | Baseline: quality 5.9, actionability 4.3 |
+| JSON compliance (PARSE schemas, retry) | 26ae486 | Parse failures in agent output | Parse failure rate reduced (qualitative) |
+| Context injection (narrative casting) | 296813e | Raw JSON confused researchers | Qualitative improvement in researcher output |
+| Role differentiation (OUT_OF_SCOPE) | 94c6334 | Researcher overlap | Reduced redundancy (qualitative) |
+| Metrics system | e252b66 | No way to measure changes | All subsequent changes measurable |
+| Timeout handling | 1227f72 | Applied agents timing out | Partial recovery, reduced data loss |
+| Adversarial critic + confidence gate | 088764f | Hallucinated citations | Factuality 4.0 → 5.0 (measured) |
+| Applied agent quality (CoT, confidence) | a699f52 | Low applied phase success rate | Applied success 2/3 → 3/3 (measured) |
+| Semantic deduplication | 779f26b | 76% technique overlap | Overlap reduced to 38% (measured) |
+| Web search (MCP) | f742f39 | Ungrounded citations | Factuality 4.0 → 6.0 (measured) |
+| Agent count ablation (14 → 8) | f4149cc | Suspected researcher redundancy | Quality maintained, actionability +1.0 (measured) |
+| Dedup threshold tuning | 71df964, 27f0358 | Threshold 0.50 over-merged | Reverted to 0.39 after overlap=1.0 on 1/3 topics |
+
+## Citation
+
+```bibtex
+@software{tyrninoksa2026researchswarm,
+  author = {Tyrninoksa, Joona},
+  title = {Research Swarm: Multi-Agent Research Pipeline with Ablation-Tested Architecture},
+  year = {2026},
+  url = {https://github.com/Joona-t/research-swarm},
+  license = {MIT}
+}
+```
+
+This is an independent research artifact by a solo developer. It is not affiliated with any institution or research lab.
+
+## Related Projects
+
+- [Blitz-Swarm](https://github.com/Joona-t/blitz-swarm) — Parallel multi-agent consensus architecture (predecessor; Research Swarm was forked from this design)
+- [Swarm Builder](https://github.com/Joona-t/swarm-builder-claude-cli-skill) — 15-agent CLI skill for browser extension development (applies Research Swarm findings)
 
 ## License
 

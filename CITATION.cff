@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use or reference this work, please cite it as below."
+title: "Research Swarm: Multi-Agent Research Pipeline with Ablation-Tested Architecture"
+type: software
+authors:
+  - given-names: Joona
+    family-names: Tyrninoksa
+    alias: Darkfire
+repository-code: "https://github.com/Joona-t/research-swarm"
+license: MIT
+version: "1.0.0"
+date-released: "2026-03-13"
+abstract: >-
+  An 8-agent research pipeline that automates AI systems research through
+  phased execution (scout, research, applied, quality gate, synthesis),
+  adversarial evaluation, and semantic deduplication. Iteratively developed
+  over 40 instrumented runs with ablation-tested agent count optimization.
+keywords:
+  - multi-agent systems
+  - LLM orchestration
+  - research automation
+  - ablation study
+  - agent evaluation
