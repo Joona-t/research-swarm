@@ -21,6 +21,8 @@ from pathlib import Path
 
 from agents import ResearchAgent, build_agents, get_agents_by_phase, CAPABILITY_REGISTRY
 from consensus import evaluate_critic, evaluate_judge, format_gate_report
+from context import prioritized_context
+from dedup import deduplicate_techniques
 from memory import ResearchMemory
 from metrics import MetricsCollector, load_all_metrics, format_metrics_report
 
@@ -62,6 +64,56 @@ def load_program() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Codebase pre-reading (avoids applied agent filesystem exploration timeouts)
+# ---------------------------------------------------------------------------
+
+
+def _summarize_codebase(codebase_path: str) -> str:
+    """Pre-read codebase structure for applied agents.
+
+    Returns a summary of files and their first-line docstrings so applied
+    agents can reason about the codebase without exploring the filesystem.
+    """
+    p = Path(codebase_path).expanduser().resolve()
+    if not p.is_dir():
+        return ""
+
+    lines = [f"Directory: {p}", ""]
+    py_files = sorted(p.glob("*.py"))
+    other_files = sorted(
+        f for f in p.iterdir()
+        if f.is_file() and f.suffix != ".py" and not f.name.startswith(".")
+    )
+
+    for f in py_files:
+        try:
+            content = f.read_text(encoding="utf-8", errors="replace")
+            # Extract module docstring or first comment
+            first_lines = content.split("\n")[:5]
+            docstring = ""
+            for line in first_lines:
+                line = line.strip()
+                if line.startswith('"""') or line.startswith("'''"):
+                    docstring = line.strip("\"'")[:100]
+                    break
+                elif line.startswith("#"):
+                    docstring = line.lstrip("# ")[:100]
+                    break
+
+            line_count = content.count("\n") + 1
+            lines.append(f"- {f.name} ({line_count} lines): {docstring}")
+        except Exception:
+            lines.append(f"- {f.name}: (unreadable)")
+
+    if other_files:
+        lines.append("")
+        for f in other_files[:10]:
+            lines.append(f"- {f.name}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Agent invocation
 # ---------------------------------------------------------------------------
 
@@ -94,6 +146,10 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
             "--model", agent.model,
             "--dangerously-skip-permissions",
         ]
+        # Applied agents get max-turns=1 to prevent filesystem exploration
+        # (which causes timeouts). Other agents need unrestricted turns.
+        if agent.phase == "applied":
+            cmd.extend(["--max-turns", "1"])
 
         start = time.monotonic()
 
@@ -149,18 +205,34 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
     return _tag(_error_output(agent, "All retries exhausted"))
 
 
+def _get_context_budget(agent: ResearchAgent) -> int:
+    """Get the context budget for an agent, checking role overrides first."""
+    config = load_config()
+    role_budgets = config.get("context", {}).get("role_budgets", {})
+
+    # Check role-specific override first (by agent role name)
+    role_budget = role_budgets.get(agent.role)
+    if role_budget:
+        return int(role_budget)
+
+    # Fall back to model-tier budget
+    return MODEL_CONTEXT_BUDGET.get(agent.model, DEFAULT_CONTEXT_BUDGET)
+
+
 def _build_prompt(agent: ResearchAgent, context: str, task: str) -> str:
     """Build the user prompt for an agent.
 
-    Token budget: each model tier gets a different context cap.
-    Haiku scouts get less context (speed), Opus gets more (quality).
+    Token budget: role-specific budget if configured, else model-tier budget.
+    Uses priority-aware compression when context exceeds budget:
+    high-confidence, well-evidenced sections are preserved in full
+    while low-priority sections are compressed or dropped.
     """
     sections = [f"## Task\n{task}"]
 
     if context:
-        budget = MODEL_CONTEXT_BUDGET.get(agent.model, DEFAULT_CONTEXT_BUDGET)
+        budget = _get_context_budget(agent)
         if len(context) > budget:
-            context = context[:budget] + "\n\n[Context trimmed to fit token budget]"
+            context = prioritized_context(context, budget)
         sections.append(f"## Context\n{context}")
 
     sections.append(
@@ -585,28 +657,43 @@ def narrative_cast_research(research_outputs: list[dict], topic: str) -> str:
                     "name": t.get("name", ""),
                     "description": t.get("description", "")[:100],
                     "from": agent_id,
+                    "evidence_type": t.get("evidence_type", "unverified"),
+                    "source_url": t.get("source_url", ""),
                 })
             elif isinstance(t, str):
                 all_techniques.append({
                     "name": t, "description": "", "from": agent_id,
+                    "evidence_type": "unverified", "source_url": "",
                 })
 
-    # Deduplicate techniques by name prefix (research finding: researchers
-    # echo-chamber the same techniques — 38 with massive overlap in run #4)
+    # Semantic deduplication: cluster techniques by meaning, not just prefix.
+    # Combines Jaccard similarity + bigram overlap + synonym canonicalization.
+    # Replaces naive 3-word prefix matching which left 76% overlap.
+    raw_count = len(all_techniques)
     if all_techniques:
-        seen_prefixes = set()
-        deduped = []
-        for t in all_techniques:
-            prefix = " ".join(t["name"].lower().split()[:3])
-            if prefix and prefix not in seen_prefixes:
-                seen_prefixes.add(prefix)
-                deduped.append(t)
-        all_techniques = deduped
+        all_techniques = deduplicate_techniques(all_techniques, threshold=0.39)
 
-        lines.append(f"Techniques discovered across all researchers ({len(all_techniques)} unique):")
+        # Compute grounding stats for the critic
+        grounded = sum(
+            1 for t in all_techniques
+            if t.get("evidence_type") in ("peer_reviewed", "preprint", "repo")
+        )
+        ungrounded = len(all_techniques) - grounded
+        grounding_pct = (grounded / len(all_techniques) * 100) if all_techniques else 0
+
+        lines.append(
+            f"Techniques discovered across all researchers "
+            f"({len(all_techniques)} unique from {raw_count} raw, "
+            f"{grounded} grounded / {ungrounded} ungrounded = {grounding_pct:.0f}% grounded):"
+        )
         for t in all_techniques:
-            desc = f" — {t['description']}" if t["description"] else ""
-            lines.append(f"- **{t['name']}**{desc} (via {t['from']})")
+            desc = f" — {t['description']}" if t.get("description") else ""
+            merged = ""
+            if t.get("_merged_count", 1) > 1:
+                merged = f" [merged {t['_merged_count']} duplicates]"
+            ev = t.get("evidence_type", "unverified")
+            ev_tag = f" [{ev}]" if ev != "unverified" else " [UNVERIFIED]"
+            lines.append(f"- **{t['name']}**{desc} (via {t['from']}){ev_tag}{merged}")
         lines.append("")
 
     # Inject capability registry so applied agents know who covers what
@@ -721,6 +808,27 @@ def build_full_context(all_outputs: dict, topic: str = "") -> str:
                             f"{issue.get('problem', '')[:80]}"
                         )
                 sections.append("")
+
+    # Grounding summary: count evidence types across all researcher techniques
+    if "research" in all_outputs:
+        grounded_count = 0
+        total_count = 0
+        for o in all_outputs["research"]:
+            if o.get("_error"):
+                continue
+            for t in o.get("techniques", []):
+                if isinstance(t, dict):
+                    total_count += 1
+                    if t.get("evidence_type") in ("peer_reviewed", "preprint", "repo"):
+                        grounded_count += 1
+        if total_count > 0:
+            pct = grounded_count / total_count * 100
+            sections.append(
+                f"## Grounding Summary\n"
+                f"{grounded_count}/{total_count} techniques have cited evidence "
+                f"({pct:.0f}% grounded). "
+                f"{'WARNING: <50% grounded — factuality ceiling is 5.' if pct < 50 else ''}"
+            )
 
     # Explicit conflicts section (research finding: helps synthesizer
     # address disagreements instead of silently merging conflicting data)
@@ -966,12 +1074,19 @@ async def run_swarm(
         research_ctx = narrative_cast_research(all_outputs.get("research", []), topic)
         codebase_note = ""
         if codebase:
-            codebase_note = f"\n\nCodebase to audit: {codebase}"
+            # Pre-read codebase structure so applied agents don't need to
+            # explore the filesystem (which causes timeouts).
+            codebase_summary = _summarize_codebase(codebase)
+            if codebase_summary:
+                codebase_note = f"\n\nCodebase structure:\n{codebase_summary}"
+            else:
+                codebase_note = f"\n\nCodebase path: {codebase}"
 
         applied_task = (
             f"Map research findings to the codebase for: {topic}\n\n"
             f"Produce concrete, actionable recommendations."
             f"{codebase_note}\n\n"
+            f"Do NOT explore the filesystem — all codebase info is above.\n\n"
             f"Respond with a JSON object containing exactly these keys:\n"
             f"- analysis (string — how findings apply to the codebase)\n"
             f"- recommendations (array of objects with: action, priority, effort)\n"

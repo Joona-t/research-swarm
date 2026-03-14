@@ -7,7 +7,7 @@ default_model = "sonnet"
 [timeouts]
 scout = 120
 researcher = 180
-applied = 200
+applied = 240
 quality = 120
 synthesizer = 240
 
@@ -25,6 +25,16 @@ synthesizer = "opus"
 haiku_budget = 30000        # ~7.5K tokens — fast scouts
 sonnet_budget = 50000       # ~12.5K tokens — researchers/applied
 opus_budget = 80000         # ~20K tokens — synthesis/judge
+
+# Role-specific budget overrides (chars). Takes precedence over model budget.
+# Scouts need less (fast discovery), critic needs more (full evidence review).
+[context.role_budgets]
+scout = 20000               # scouts do discovery, not deep analysis
+researcher = 50000          # researchers need full scout context
+applied = 40000             # applied agents get pre-summarized research
+critic = 60000              # critic needs full evidence to verify claims
+judge = 70000               # judge reviews everything
+synthesizer = 80000         # synthesizer integrates all phases
 
 [memory]
 db_path = "memory.db"
