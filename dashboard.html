@@ -94,7 +94,7 @@
 <body>
     <h1>Research Swarm Dashboard</h1>
     <p class="subtitle">
-        29 successful runs | Last updated: 2026-03-14 16:44
+        32 successful runs | Last updated: 2026-03-14 17:21
         | Latest: ? agents
     </p>
 
@@ -110,7 +110,7 @@
             <div class="label">Avg Quality</div>
             <div class="value">6.2</div>
             <div class="trend trend-down">
-                Latest: 5.5
+                Latest: 6.8
             </div>
         </div>
         <div class="stat-card">
@@ -123,20 +123,20 @@
         </div>
         <div class="stat-card">
             <div class="label">Best Factuality</div>
-            <div class="value">6.0</div>
+            <div class="value">7.0</div>
         </div>
         <div class="stat-card">
             <div class="label">Total Runs</div>
-            <div class="value">29</div>
+            <div class="value">32</div>
         </div>
         <div class="stat-card">
             <div class="label">Avg Wall Clock</div>
-            <div class="value">600s</div>
+            <div class="value">597s</div>
         </div>
         <div class="stat-card">
             <div class="label">Total Cost</div>
-            <div class="value">$0.00</div>
-            <div class="trend trend-flat">Avg: $0.0000/run</div>
+            <div class="value">$1.79</div>
+            <div class="trend trend-flat">Avg: $0.0559/run</div>
         </div>
     </div>
 
@@ -529,12 +529,48 @@
             <td>—</td>
             <td class="status-keep">KEEP</td>
         </tr>
+        <tr>
+            <td>30</td>
+            <td class="topic-cell" title="Chain-of-thought prompting techniques 2025">Chain-of-thought prompting techniques 2025</td>
+            <td>5</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>23%</td>
+            <td>502s</td>
+            <td>$0.60</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>31</td>
+            <td class="topic-cell" title="Speculative decoding for multi-agent systems">Speculative decoding for multi-agent systems</td>
+            <td>5</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>7.0</td>
+            <td>0%</td>
+            <td>441s</td>
+            <td>$0.56</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
+        <tr>
+            <td>32</td>
+            <td class="topic-cell" title="Autonomous agent self-improvement via recursive code editing">Autonomous agent self-improvement via recursive co</td>
+            <td>5</td>
+            <td>6.8</td>
+            <td>6.0</td>
+            <td>7.0</td>
+            <td>100%</td>
+            <td>737s</td>
+            <td>$0.63</td>
+            <td class="status-keep">KEEP</td>
+        </tr>
         </tbody>
     </table>
 
     <script>
-        const labels = ["Run 1", "Run 2", "Run 3", "Run 4", "Run 5", "Run 6", "Run 7", "Run 8", "Run 9", "Run 10", "Run 11", "Run 12", "Run 13", "Run 14", "Run 15", "Run 16", "Run 17", "Run 18", "Run 19", "Run 20", "Run 21", "Run 22", "Run 23", "Run 24", "Run 25", "Run 26", "Run 27", "Run 28", "Run 29"];
-        const topics = ["Reducing agent timeout failures and opti", "Reducing hallucination and improving fac", "Reducing hallucination and improving fac", "Reducing applied agent failures and impr", "Semantic similarity detection and redund", "Optimal multi-agent coordination pattern", "Grounding multi-agent LLM systems with t", "Automated evaluation frameworks for mult", "Automated evaluation frameworks for mult", "Priority-aware context compression and i", "Techniques for reducing latency and impr", "Lightweight semantic deduplication techn", "Improving factuality in multi-agent LLM ", "Optimal number of agents in multi-agent ", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Chain-of-thought prompting techniques 20", "Speculative decoding for multi-agent sys", "Autonomous agent self-improvement via re"];
+        const labels = ["Run 1", "Run 2", "Run 3", "Run 4", "Run 5", "Run 6", "Run 7", "Run 8", "Run 9", "Run 10", "Run 11", "Run 12", "Run 13", "Run 14", "Run 15", "Run 16", "Run 17", "Run 18", "Run 19", "Run 20", "Run 21", "Run 22", "Run 23", "Run 24", "Run 25", "Run 26", "Run 27", "Run 28", "Run 29", "Run 30", "Run 31", "Run 32"];
+        const topics = ["Reducing agent timeout failures and opti", "Reducing hallucination and improving fac", "Reducing hallucination and improving fac", "Reducing applied agent failures and impr", "Semantic similarity detection and redund", "Optimal multi-agent coordination pattern", "Grounding multi-agent LLM systems with t", "Automated evaluation frameworks for mult", "Automated evaluation frameworks for mult", "Priority-aware context compression and i", "Techniques for reducing latency and impr", "Lightweight semantic deduplication techn", "Improving factuality in multi-agent LLM ", "Optimal number of agents in multi-agent ", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Techniques for reducing hallucination in", "Efficient fine-tuning methods for large ", "Code generation evaluation benchmarks an", "Chain-of-thought prompting techniques 20", "Speculative decoding for multi-agent sys", "Autonomous agent self-improvement via re", "Chain-of-thought prompting techniques 20", "Speculative decoding for multi-agent sys", "Autonomous agent self-improvement via re"];
 
         const chartDefaults = {
             responsive: true,
@@ -561,7 +597,7 @@
                 datasets: [
                     {
                         label: 'Avg Quality',
-                        data: [7.0, 7.0, 6.3, 6.5, 5.8, 6.8, 6.0, 4.5, 7.0, 6.5, 6.5, 6.2, 7.2, 6.2, 5.5, 6.0, 6.2, 6.0, 4.5, 6.5, 6.5, 5.5, 6.2, 6.0, 6.5, 5.8, 6.0, 6.5, 5.5],
+                        data: [7.0, 7.0, 6.3, 6.5, 5.8, 6.8, 6.0, 4.5, 7.0, 6.5, 6.5, 6.2, 7.2, 6.2, 5.5, 6.0, 6.2, 6.0, 4.5, 6.5, 6.5, 5.5, 6.2, 6.0, 6.5, 5.8, 6.0, 6.5, 5.5, 7.0, 7.0, 6.8],
                         borderColor: '#58a6ff',
                         backgroundColor: 'rgba(88,166,255,0.1)',
                         fill: true,
@@ -569,7 +605,7 @@
                     },
                     {
                         label: '3-Run Average',
-                        data: [7.0, 7.0, 6.77, 6.6, 6.2, 6.37, 6.2, 5.77, 5.83, 6.0, 6.67, 6.4, 6.63, 6.53, 6.3, 5.9, 5.9, 6.07, 5.57, 5.67, 5.83, 6.17, 6.07, 5.9, 6.23, 6.1, 6.1, 6.1, 6.0],
+                        data: [7.0, 7.0, 6.77, 6.6, 6.2, 6.37, 6.2, 5.77, 5.83, 6.0, 6.67, 6.4, 6.63, 6.53, 6.3, 5.9, 5.9, 6.07, 5.57, 5.67, 5.83, 6.17, 6.07, 5.9, 6.23, 6.1, 6.1, 6.1, 6.0, 6.33, 6.5, 6.93],
                         borderColor: '#bc8cff',
                         borderDash: [5, 5],
                         pointRadius: 0,
@@ -577,7 +613,7 @@
                     },
                     {
                         label: 'Coverage',
-                        data: [8.0, 8.0, 7.0, 8.0, 7.0, 7.0, 7.0, 4.0, 8.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 6.0, 7.0, 7.0, 6.0, 7.0, 6.0, 7.0, 6.0, 7.0, 7.0, 6.0],
+                        data: [8.0, 8.0, 7.0, 8.0, 7.0, 7.0, 7.0, 4.0, 8.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 8.0, 7.0, 7.0, 6.0, 7.0, 7.0, 6.0, 7.0, 6.0, 7.0, 6.0, 7.0, 7.0, 6.0, 7.0, 7.0, 7.0],
                         borderColor: '#3fb950',
                         borderWidth: 1,
                         pointRadius: 2,
@@ -585,7 +621,7 @@
                     },
                     {
                         label: 'Accuracy',
-                        data: [6.0, 6.0, 5.0, 7.0, 6.0, 7.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0, 6.0, 7.0, 6.0],
+                        data: [6.0, 6.0, 5.0, 7.0, 6.0, 7.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0, 6.0, 5.0, 7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.0, 6.0, 7.0, 6.0, 7.0, 7.0, 7.0],
                         borderColor: '#d29922',
                         borderWidth: 1,
                         pointRadius: 2,
@@ -604,7 +640,7 @@
                 datasets: [
                     {
                         label: 'Actionability',
-                        data: [7.0, 7.0, 7.0, 7.0, 6.0, 7.0, 6.0, 6.0, 8.0, 7.0, 7.0, 7.0, 8.0, 7.0, 3.0, 3.0, 7.0, 6.0, 2.0, 6.0, 6.0, 4.0, 6.0, 7.0, 6.0, 6.0, 6.0, 6.0, 6.0],
+                        data: [7.0, 7.0, 7.0, 7.0, 6.0, 7.0, 6.0, 6.0, 8.0, 7.0, 7.0, 7.0, 8.0, 7.0, 3.0, 3.0, 7.0, 6.0, 2.0, 6.0, 6.0, 4.0, 6.0, 7.0, 6.0, 6.0, 6.0, 6.0, 6.0, 7.0, 7.0, 6.0],
                         borderColor: '#3fb950',
                         backgroundColor: 'rgba(63,185,80,0.1)',
                         fill: true,
@@ -612,7 +648,7 @@
                     },
                     {
                         label: 'Factuality',
-                        data: [0, 0, 0, 4.0, 4.0, 6.0, 5.0, 3.0, 5.0, 4.0, 5.0, 4.0, 6.0, 4.0, 5.0, 6.0, 5.0, 5.0, 5.0, 6.0, 6.0, 5.0, 5.0, 4.0, 6.0, 5.0, 5.0, 6.0, 4.0],
+                        data: [0, 0, 0, 4.0, 4.0, 6.0, 5.0, 3.0, 5.0, 4.0, 5.0, 4.0, 6.0, 4.0, 5.0, 6.0, 5.0, 5.0, 5.0, 6.0, 6.0, 5.0, 5.0, 4.0, 6.0, 5.0, 5.0, 6.0, 4.0, 7.0, 7.0, 7.0],
                         borderColor: '#f85149',
                         backgroundColor: 'rgba(248,81,73,0.1)',
                         fill: true,
@@ -620,7 +656,7 @@
                     },
                     {
                         label: 'Action. 3-Run Avg',
-                        data: [7.0, 7.0, 7.0, 7.0, 6.67, 6.67, 6.33, 6.33, 6.67, 7.0, 7.33, 7.0, 7.33, 7.33, 6.0, 4.33, 4.33, 5.33, 5.0, 4.67, 4.67, 5.33, 5.33, 5.67, 6.33, 6.33, 6.0, 6.0, 6.0],
+                        data: [7.0, 7.0, 7.0, 7.0, 6.67, 6.67, 6.33, 6.33, 6.67, 7.0, 7.33, 7.0, 7.33, 7.33, 6.0, 4.33, 4.33, 5.33, 5.0, 4.67, 4.67, 5.33, 5.33, 5.67, 6.33, 6.33, 6.0, 6.0, 6.0, 6.33, 6.67, 6.67],
                         borderColor: '#3fb950',
                         borderDash: [5, 5],
                         pointRadius: 0,
@@ -628,7 +664,7 @@
                     },
                     {
                         label: 'Fact. 3-Run Avg',
-                        data: [0.0, 0.0, 0.0, 1.33, 2.67, 4.67, 5.0, 4.67, 4.33, 4.0, 4.67, 4.33, 5.0, 4.67, 5.0, 5.0, 5.33, 5.33, 5.0, 5.33, 5.67, 5.67, 5.33, 4.67, 5.0, 5.0, 5.33, 5.33, 5.0],
+                        data: [0.0, 0.0, 0.0, 1.33, 2.67, 4.67, 5.0, 4.67, 4.33, 4.0, 4.67, 4.33, 5.0, 4.67, 5.0, 5.0, 5.33, 5.33, 5.0, 5.33, 5.67, 5.67, 5.33, 4.67, 5.0, 5.0, 5.33, 5.33, 5.0, 5.67, 6.0, 7.0],
                         borderColor: '#f85149',
                         borderDash: [5, 5],
                         pointRadius: 0,
@@ -646,7 +682,7 @@
                 labels: labels,
                 datasets: [{
                     label: 'Overlap %',
-                    data: [69.2, 62.5, 73.7, 75.6, 58.3, 5.4, 27.8, 0.0, 52.6, 33.3, 71.4, 45.7, 100.0, 54.8, 0.0, 0.0, 13.9, 5.0, 0.0, 47.4, 6.7, 0.0, -14.3, 6.7, 7.7, 0.0, 23.1, 0.0, 37.5],
+                    data: [69.2, 62.5, 73.7, 75.6, 58.3, 5.4, 27.8, 0.0, 52.6, 33.3, 71.4, 45.7, 100.0, 54.8, 0.0, 0.0, 13.9, 5.0, 0.0, 47.4, 6.7, 0.0, -14.3, 6.7, 7.7, 0.0, 23.1, 0.0, 37.5, 23.1, 0.0, 100.0],
                     backgroundColor: (ctx) => {
                         const v = ctx.raw;
                         if (v > 60) return 'rgba(248,81,73,0.6)';
@@ -667,7 +703,7 @@
                 datasets: [
                     {
                         label: 'Wall Clock (s)',
-                        data: [584.0, 709.0, 619.0, 709.0, 671.0, 737.0, 682.0, 370.0, 639.0, 764.0, 647.0, 626.0, 763.0, 541.0, 452.0, 528.0, 562.0, 601.0, 480.0, 632.0, 603.0, 438.0, 548.0, 467.0, 620.0, 584.0, 537.0, 628.0, 673.0],
+                        data: [584.0, 709.0, 619.0, 709.0, 671.0, 737.0, 682.0, 370.0, 639.0, 764.0, 647.0, 626.0, 763.0, 541.0, 452.0, 528.0, 562.0, 601.0, 480.0, 632.0, 603.0, 438.0, 548.0, 467.0, 620.0, 584.0, 537.0, 628.0, 673.0, 502.0, 441.0, 737.0],
                         borderColor: '#d29922',
                         backgroundColor: 'rgba(210,153,34,0.1)',
                         fill: true,
@@ -676,7 +712,7 @@
                     },
                     {
                         label: 'Agent Count',
-                        data: [11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 7, 7, 7, 5, 5, 5, 4, 4, 4, 5, 5, 5],
+                        data: [11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 7, 7, 7, 5, 5, 5, 4, 4, 4, 5, 5, 5, 5, 5, 5],
                         borderColor: '#bc8cff',
                         borderWidth: 2,
                         pointRadius: 4,
@@ -685,7 +721,7 @@
                     },
                     {
                         label: 'Applied Success %',
-                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                         borderColor: '#58a6ff',
                         borderWidth: 1,
                         pointRadius: 2,
@@ -712,7 +748,7 @@
                 datasets: [
                     {
                         label: 'Cost (USD)',
-                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6032, 0.5575, 0.6316],
                         backgroundColor: 'rgba(63,185,80,0.5)',
                         borderColor: '#3fb950',
                         borderWidth: 1,
@@ -721,7 +757,7 @@
                     },
                     {
                         label: '3-Run Avg',
-                        data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        data: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.39, 0.6],
                         type: 'line',
                         borderColor: '#bc8cff',
                         borderDash: [5, 5],
