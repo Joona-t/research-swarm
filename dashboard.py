@@ -49,6 +49,9 @@ def generate_dashboard(metrics: list[dict]) -> str:
     agent_count = [m.get("agent_count", m.get("total_agent_invocations", 14)) for m in valid]
     applied_rate = [round(m.get("applied_success_rate", 0) * 100, 0) for m in valid]
     timestamps = [m.get("timestamp", "") for m in valid]
+    cost_usd = [round(m.get("total_cost_usd", 0), 4) for m in valid]
+    input_tokens = [m.get("total_input_tokens", 0) for m in valid]
+    output_tokens = [m.get("total_output_tokens", 0) for m in valid]
 
     # Compute running averages (window=3)
     def running_avg(data, window=3):
@@ -61,6 +64,7 @@ def generate_dashboard(metrics: list[dict]) -> str:
     quality_avg = running_avg(quality)
     action_avg = running_avg(actionability)
     fact_avg = running_avg(factuality)
+    cost_avg = running_avg(cost_usd)
 
     # Summary stats
     n = len(valid)
@@ -70,6 +74,8 @@ def generate_dashboard(metrics: list[dict]) -> str:
     best_fact = max(factuality) if factuality else 0
     avg_quality = round(sum(quality) / n, 1) if n else 0
     avg_wall = round(sum(wall_clock) / n, 0) if n else 0
+    total_cost = round(sum(cost_usd), 2)
+    avg_cost = round(total_cost / n, 4) if n else 0
 
     # Build the topic table rows
     table_rows = ""
@@ -78,6 +84,8 @@ def generate_dashboard(metrics: list[dict]) -> str:
         status_class = "status-keep" if vote == "keep" else "status-discard"
         wall = round(m.get("wall_clock_s", m.get("total_wall_clock_s", 0)))
         agents = m.get("agent_count", m.get("total_agent_invocations", 14))
+        run_cost = m.get("total_cost_usd", 0)
+        cost_display = f"${run_cost:.2f}" if run_cost > 0 else "—"
         table_rows += f"""
         <tr>
             <td>{i+1}</td>
@@ -88,6 +96,7 @@ def generate_dashboard(metrics: list[dict]) -> str:
             <td>{m.get('factuality', 0):.1f}</td>
             <td>{round(m.get('overlap_ratio', 0) * 100)}%</td>
             <td>{wall}s</td>
+            <td>{cost_display}</td>
             <td class="{status_class}">{vote.upper()}</td>
         </tr>"""
 
@@ -226,6 +235,11 @@ def generate_dashboard(metrics: list[dict]) -> str:
             <div class="label">Avg Wall Clock</div>
             <div class="value">{avg_wall:.0f}s</div>
         </div>
+        <div class="stat-card">
+            <div class="label">Total Cost</div>
+            <div class="value">${total_cost:.2f}</div>
+            <div class="trend trend-flat">Avg: ${avg_cost:.4f}/run</div>
+        </div>
     </div>
 
     <div class="charts-grid">
@@ -245,6 +259,10 @@ def generate_dashboard(metrics: list[dict]) -> str:
             <h3>Wall Clock (seconds) & Agent Count</h3>
             <canvas id="perfChart"></canvas>
         </div>
+        <div class="chart-card">
+            <h3>Cost per Run (USD)</h3>
+            <canvas id="costChart"></canvas>
+        </div>
     </div>
 
     <h2 class="section-title">Run History</h2>
@@ -259,6 +277,7 @@ def generate_dashboard(metrics: list[dict]) -> str:
                 <th>Fact.</th>
                 <th>Overlap</th>
                 <th>Wall</th>
+                <th>Cost</th>
                 <th>Status</th>
             </tr>
         </thead>
@@ -435,6 +454,42 @@ def generate_dashboard(metrics: list[dict]) -> str:
                     x: chartDefaults.scales.x,
                     y: {{ ...chartDefaults.scales.y, position: 'left', title: {{ display: true, text: 'Seconds', color: '#8b949e' }} }},
                     y1: {{ ...chartDefaults.scales.y, position: 'right', min: 0, max: 20, title: {{ display: true, text: 'Count / %', color: '#8b949e' }}, grid: {{ drawOnChartArea: false }} }}
+                }}
+            }}
+        }});
+
+        // Cost chart (USD per run)
+        new Chart(document.getElementById('costChart'), {{
+            type: 'bar',
+            data: {{
+                labels: labels,
+                datasets: [
+                    {{
+                        label: 'Cost (USD)',
+                        data: {json.dumps(cost_usd)},
+                        backgroundColor: 'rgba(63,185,80,0.5)',
+                        borderColor: '#3fb950',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        yAxisID: 'y',
+                    }},
+                    {{
+                        label: '3-Run Avg',
+                        data: {json.dumps(cost_avg)},
+                        type: 'line',
+                        borderColor: '#bc8cff',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y',
+                    }}
+                ]
+            }},
+            options: {{
+                ...chartDefaults,
+                scales: {{
+                    ...chartDefaults.scales,
+                    y: {{ ...chartDefaults.scales.y, min: 0, title: {{ display: true, text: 'USD', color: '#8b949e' }} }}
                 }}
             }}
         }});

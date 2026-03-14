@@ -139,11 +139,13 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
     """
     label = f"{agent.role}({agent.id})"
     trace_id = str(uuid.uuid4())
+    _envelope_cost = {}  # cost data extracted from CLI envelope
 
     def _tag(output: dict) -> dict:
-        """Inject trace metadata into every output."""
+        """Inject trace metadata and cost data into every output."""
         output["_trace_id"] = trace_id
         output["_wall_clock_s"] = round(time.monotonic() - _invoke_start, 1)
+        output.update(_envelope_cost)
         return output
 
     _invoke_start = time.monotonic()
@@ -175,6 +177,17 @@ def invoke_agent(agent: ResearchAgent, context: str, task: str,
                 cmd, capture_output=True, text=True, timeout=agent.timeout,
             )
             elapsed = time.monotonic() - start
+
+            # Extract cost data from CLI envelope before parsing
+            try:
+                _env = json.loads(result.stdout)
+                if isinstance(_env, dict):
+                    _envelope_cost["_cost_usd"] = _env.get("total_cost_usd", 0)
+                    _usage = _env.get("usage", {})
+                    _envelope_cost["_input_tokens"] = _usage.get("input_tokens", 0)
+                    _envelope_cost["_output_tokens"] = _usage.get("output_tokens", 0)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
             if result.returncode != 0:
                 stderr = (result.stderr or "")[:300]
@@ -707,7 +720,9 @@ def narrative_cast_research(research_outputs: list[dict], topic: str) -> str:
     # Replaces naive 3-word prefix matching which left 76% overlap.
     raw_count = len(all_techniques)
     if all_techniques:
-        all_techniques = deduplicate_techniques(all_techniques, threshold=0.39)
+        config = load_config()
+        dedup_thresh = config.get("quality", {}).get("dedup_threshold", 0.50)
+        all_techniques = deduplicate_techniques(all_techniques, threshold=dedup_thresh)
 
         # Compute grounding stats for the critic
         grounded = sum(
@@ -1152,61 +1167,68 @@ async def run_swarm(
         critic_agent = next((a for a in quality_agents if a.id == "critic"), None)
         judge_agent = next((a for a in quality_agents if a.id == "judge"), None)
 
-        print(f"\n--- Phase 4: QUALITY GATE (sequential) ---")
+        print(f"\n--- Phase 4: QUALITY GATE (parallel) ---")
 
+        # Build context once — critic and judge score independently
         full_ctx = build_full_context(all_outputs, topic)
 
-        # Critic first
+        critic_task = (
+            f"Evaluate the research quality for: {topic}\n\n"
+            f"Respond with a JSON object containing exactly these keys:\n"
+            f"- issues (array of objects with claim, problem, severity)\n"
+            f"- confidence (number 0-1)\n"
+            f"- verdict (\"pass\", \"concerns\", or \"fail\")"
+        )
+        judge_task = (
+            f"Judge the research quality for: {topic}\n\n"
+            f"Respond with a JSON object containing exactly these keys:\n"
+            f"- coverage_score (number 0-10)\n"
+            f"- accuracy_score (number 0-10)\n"
+            f"- factuality_score (number 0-10 — are claims cited?)\n"
+            f"- actionability_score (number 0-10)\n"
+            f"- quality_vote (\"keep\" or \"discard\")\n"
+            f"- notes (string explaining your decision)\n\n"
+            f"Vote KEEP if actionability >= 6, DISCARD if below."
+        )
+
+        # Run critic and judge in parallel
+        gate_start = time.monotonic()
+        coros = []
         if critic_agent:
-            critic_task = (
-                f"Evaluate the research quality for: {topic}\n\n"
-                f"Respond with a JSON object containing exactly these keys:\n"
-                f"- issues (array of objects with claim, problem, severity)\n"
-                f"- confidence (number 0-1)\n"
-                f"- verdict (\"pass\", \"concerns\", or \"fail\")"
-            )
-            print(f"  Running critic...")
-            start = time.monotonic()
-            critic_output = await asyncio.to_thread(
-                invoke_agent, critic_agent, full_ctx, critic_task
-            )
-            elapsed = time.monotonic() - start
+            print(f"  Running critic + judge in parallel...")
+            coros.append(asyncio.to_thread(invoke_agent, critic_agent, full_ctx, critic_task))
+        if judge_agent:
+            coros.append(asyncio.to_thread(invoke_agent, judge_agent, full_ctx, judge_task))
+
+        results = await asyncio.gather(*coros)
+        gate_elapsed = time.monotonic() - gate_start
+
+        # Unpack results
+        idx = 0
+        critic_output = None
+        judge_output = None
+        if critic_agent:
+            critic_output = results[idx]
+            idx += 1
+            invocation_count += 1
+        if judge_agent:
+            judge_output = results[idx]
             invocation_count += 1
 
+        # Process critic
+        if critic_output:
             if verbose:
                 print(f"  Critic raw output keys: {list(critic_output.keys())}")
                 for k, v in critic_output.items():
                     if not k.startswith("_"):
                         print(f"    {k}: {str(v)[:120]}")
-
             critic_eval = evaluate_critic(critic_output)
             print(f"  Critic verdict: {critic_eval['verdict']} "
-                  f"({critic_eval['total_issues']} issues) [{elapsed:.1f}s]")
-
+                  f"({critic_eval['total_issues']} issues) [{gate_elapsed:.1f}s]")
             all_outputs.setdefault("quality", []).append(critic_output)
 
-        # Judge sees everything including critic
-        if judge_agent:
-            judge_ctx = build_full_context(all_outputs, topic)
-            judge_task = (
-                f"Judge the research quality for: {topic}\n\n"
-                f"Respond with a JSON object containing exactly these keys:\n"
-                f"- coverage_score (number 0-10)\n"
-                f"- accuracy_score (number 0-10)\n"
-                f"- factuality_score (number 0-10 — are claims cited?)\n"
-                f"- actionability_score (number 0-10)\n"
-                f"- quality_vote (\"keep\" or \"discard\")\n"
-                f"- notes (string explaining your decision)\n\n"
-                f"Vote KEEP if actionability >= 6, DISCARD if below."
-            )
-            print(f"  Running judge (opus)...")
-            start = time.monotonic()
-            judge_output = await asyncio.to_thread(
-                invoke_agent, judge_agent, judge_ctx, judge_task
-            )
-            elapsed = time.monotonic() - start
-            invocation_count += 1
-
+        # Process judge
+        if judge_output:
             config = load_config()
             min_act = config.get("quality", {}).get("min_actionability", 6)
             if verbose:
@@ -1226,14 +1248,14 @@ async def run_swarm(
                 sum(confidences) / len(confidences) if confidences else 0.7
             )
 
-            critic_verdict = critic_eval.get("verdict", "concerns") if critic_agent else "concerns"
+            critic_verdict = critic_eval.get("verdict", "concerns") if critic_output else "concerns"
             judge_eval = evaluate_judge(judge_output, min_act, mean_confidence, critic_verdict)
             print(f"  Judge: actionability={judge_eval['actionability']}/10, "
-                  f"vote={judge_eval['vote']} [{elapsed:.1f}s]")
+                  f"vote={judge_eval['vote']} [{gate_elapsed:.1f}s]")
 
             all_outputs.setdefault("quality", []).append(judge_output)
 
-            critic_result = critic_eval if critic_agent else {
+            critic_result = critic_eval if critic_output else {
                 "verdict": "skipped", "confidence": 0,
                 "total_issues": 0, "high_severity": 0,
                 "medium_severity": 0, "issues": [],

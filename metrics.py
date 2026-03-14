@@ -45,6 +45,9 @@ class PhaseMetrics:
     agents_raw: int = 0
     wall_clock_s: float = 0.0
     context_chars_sent: int = 0
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     @property
     def success_rate(self) -> float:
@@ -85,6 +88,9 @@ class RunMetrics:
     total_wall_clock_s: float = 0.0
     total_agent_invocations: int = 0
     estimated_cost_units: float = 0.0  # chars × model_weight, arbitrary units
+    total_cost_usd: float = 0.0       # actual USD from CLI envelope
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
 
     # Memory state at run start
     memory_techniques: int = 0
@@ -127,6 +133,9 @@ class MetricsCollector:
         errors = 0
         timeouts = 0
         raw = 0
+        phase_cost = 0.0
+        phase_input_tokens = 0
+        phase_output_tokens = 0
 
         for o in outputs:
             if o.get("_error"):
@@ -139,6 +148,10 @@ class MetricsCollector:
                 raw += 1
             else:
                 ok += 1
+            # Accumulate cost from CLI envelope data
+            phase_cost += o.get("_cost_usd", 0)
+            phase_input_tokens += o.get("_input_tokens", 0)
+            phase_output_tokens += o.get("_output_tokens", 0)
 
         pm = PhaseMetrics(
             phase=phase,
@@ -149,10 +162,16 @@ class MetricsCollector:
             agents_raw=raw,
             wall_clock_s=round(wall_clock, 1),
             context_chars_sent=context_chars,
+            cost_usd=round(phase_cost, 6),
+            input_tokens=phase_input_tokens,
+            output_tokens=phase_output_tokens,
         )
 
         self.run.phases[phase] = asdict(pm)
         self.run.total_agent_invocations += len(outputs)
+        self.run.total_cost_usd += phase_cost
+        self.run.total_input_tokens += phase_input_tokens
+        self.run.total_output_tokens += phase_output_tokens
 
     def record_agent_timing(self, agent_id: str, model: str,
                             elapsed_s: float, context_chars: int):
@@ -191,6 +210,7 @@ class MetricsCollector:
             time.monotonic() - self._run_start, 1
         )
         self.run.estimated_cost_units = round(self.run.estimated_cost_units)
+        self.run.total_cost_usd = round(self.run.total_cost_usd, 4)
 
     def save(self):
         """Append metrics record to JSONL file."""
@@ -338,7 +358,7 @@ def format_metrics_report(records: list[dict], last_n: int = 5) -> str:
         action = r.get("actionability", 0)
         overlap = r.get("overlap_ratio", 0)
         wall = r.get("total_wall_clock_s", 0)
-        cost = r.get("estimated_cost_units", 0)
+        cost_usd = r.get("total_cost_usd", 0)
 
         # Applied success rate
         applied = r.get("phases", {}).get("applied", {})
@@ -347,6 +367,7 @@ def format_metrics_report(records: list[dict], last_n: int = 5) -> str:
         else:
             applied_pct = "—"
 
+        cost_str = f"${cost_usd:.2f}" if cost_usd > 0 else "—"
         lines.append(
             f"| {len(records) - last_n + i + 1} "
             f"| {topic} "
@@ -355,7 +376,7 @@ def format_metrics_report(records: list[dict], last_n: int = 5) -> str:
             f"| {overlap:.0%} "
             f"| {applied_pct} "
             f"| {wall:.0f} "
-            f"| {cost:,.0f} |"
+            f"| {cost_str} |"
         )
 
     # Trends

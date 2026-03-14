@@ -58,3 +58,4 @@ log_file = "research-log.tsv"
 
 [quality]
 min_actionability = 6         # 0-10, below this = discard
+dedup_threshold = 0.50        # similarity threshold for technique dedup (was 0.39)
