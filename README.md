@@ -164,7 +164,7 @@ Tested across three topics: RAG hallucination reduction, fine-tuning methods, co
 ### Requirements
 - Python 3.11+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- `pip install ddgs mcp httpx`
+- `pip install ddgs mcp httpx tavily-python`
 
 ### Run a research topic
 ```bash

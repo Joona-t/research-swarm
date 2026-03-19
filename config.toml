@@ -56,6 +56,9 @@ max_technique_age_days = 90      # deprioritize untouched techniques older than 
 dir = "./output"
 log_file = "research-log.tsv"
 
+[search]
+provider = "duckduckgo"           # 'duckduckgo' (free, default) or 'tavily' (needs TAVILY_API_KEY)
+
 [quality]
 min_actionability = 6         # 0-10, below this = discard
 dedup_threshold = 0.39        # empirically tuned; 0.50 caused overlap=1.0 on some topics
